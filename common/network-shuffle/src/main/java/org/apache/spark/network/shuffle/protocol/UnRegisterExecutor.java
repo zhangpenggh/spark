@@ -37,7 +37,7 @@ public class UnRegisterExecutor extends BlockTransferMessage {
   }
 
   @Override
-  protected Type type() { return Type.REGISTER_EXECUTOR; }
+  protected Type type() { return Type.UNREGISTER_EXECUTOR; }
 
   @Override
   public int hashCode() {

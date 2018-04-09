@@ -106,7 +106,7 @@ public class ExternalShuffleBlockHandler extends RpcHandler {
 
     } else if (msgObj instanceof RegisterExecutor) {
       final Timer.Context responseDelayContext =
-        metrics.registerExecutorRequestLatencyMillis.time();
+              metrics.registerExecutorRequestLatencyMillis.time();
       try {
         RegisterExecutor msg = (RegisterExecutor) msgObj;
         checkAuth(client, msg.appId);
@@ -115,7 +115,10 @@ public class ExternalShuffleBlockHandler extends RpcHandler {
       } finally {
         responseDelayContext.stop();
       }
-
+    } else if (msgObj instanceof UnRegisterExecutor) {
+      UnRegisterExecutor msg = (UnRegisterExecutor) msgObj;
+      checkAuth(client, msg.appId);
+      blockManager.unRegisterExecutor(msg.appId, msg.execId);
     } else {
       throw new UnsupportedOperationException("Unexpected message: " + msgObj);
     }

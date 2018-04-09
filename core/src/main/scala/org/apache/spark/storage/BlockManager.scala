@@ -23,6 +23,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.Channels
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.lang.Process
 
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
@@ -31,6 +32,7 @@ import scala.concurrent.duration._
 import scala.reflect.ClassTag
 import scala.util.Random
 import scala.util.control.NonFatal
+//import scala.sys.process._
 
 import com.codahale.metrics.{MetricRegistry, MetricSet}
 import com.google.common.io.CountingOutputStream
@@ -263,6 +265,8 @@ private[spark] class BlockManager(
     // Register Executors' configuration with the local shuffle service, if one should exist.
     if (externalShuffleServiceEnabled && !blockManagerId.isDriver) {
       registerWithExternalShuffleServer()
+      ShutdownHookManager.addShutdownHook(() =>
+        unRegisterWithExternalShuffleServer);
     }
 
     logInfo(s"Initialized BlockManager: $blockManagerId")
@@ -275,6 +279,23 @@ private[spark] class BlockManager(
       new ShuffleMetricsSource("ExternalShuffle", shuffleClient.shuffleMetrics())
     } else {
       new ShuffleMetricsSource("NettyBlockTransfer", shuffleClient.shuffleMetrics())
+    }
+  }
+
+  private def dirChmod(file: File) {
+    var process:Process = null
+    try {
+      val cmd = "chmod -R 777 ".concat(file.getParentFile.getAbsolutePath)
+      logInfo("修改目录权限：".concat(cmd))
+      process = Runtime.getRuntime.exec(cmd)
+      process.waitFor()
+    } catch {
+      case e : Exception =>
+        logError(e.getMessage, e)
+    } finally {
+      if (process != null) {
+        process.destroy()
+      }
     }
   }
 
@@ -299,6 +320,34 @@ private[spark] class BlockManager(
           logError(s"Failed to connect to external shuffle server, will retry ${MAX_ATTEMPTS - i}"
             + s" more times after waiting $SLEEP_TIME_SECS seconds...", e)
           Thread.sleep(SLEEP_TIME_SECS * 1000L)
+        case NonFatal(e) =>
+          throw new SparkException("Unable to register with external shuffle server due to : " +
+            e.getMessage, e)
+      }
+    }
+  }
+
+
+  private[spark] def unRegisterWithExternalShuffleServer() {
+    logInfo("un-registering executor with local external shuffle service.")
+    val MAX_ATTEMPTS = 3
+    val SLEEP_TIME_SECS = 5
+
+    if (diskBlockManager.localDirs != null && diskBlockManager.localDirs.length > 0) {
+      diskBlockManager.localDirs.foreach(dirChmod)
+    }
+
+    for (i <- 1 to MAX_ATTEMPTS) {
+      try {
+        // Synchronous and will throw an exception if we cannot connect.
+        shuffleClient.asInstanceOf[ExternalShuffleClient].unRegisterWithShuffleServer(
+          shuffleServerId.host, shuffleServerId.port, shuffleServerId.executorId)
+        return
+      } catch {
+        case e: Exception if i < MAX_ATTEMPTS =>
+          logError(s"Failed to connect to external shuffle server, will retry ${MAX_ATTEMPTS - i}"
+            + s" more times after waiting $SLEEP_TIME_SECS seconds...", e)
+          Thread.sleep(SLEEP_TIME_SECS * 1000)
         case NonFatal(e) =>
           throw new SparkException("Unable to register with external shuffle server due to : " +
             e.getMessage, e)
@@ -1612,6 +1661,9 @@ private[spark] class BlockManager(
   }
 
   def stop(): Unit = {
+    if (externalShuffleServiceEnabled && !blockManagerId.isDriver) {
+      unRegisterWithExternalShuffleServer();
+    }
     blockTransferService.close()
     if (shuffleClient ne blockTransferService) {
       // Closing should be idempotent, but maybe not for the NioBlockTransferService.

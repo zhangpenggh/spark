@@ -23,6 +23,7 @@ import java.util.List;
 
 import com.codahale.metrics.MetricSet;
 import com.google.common.collect.Lists;
+import org.apache.spark.network.shuffle.protocol.UnRegisterExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -142,6 +143,25 @@ public class ExternalShuffleClient extends ShuffleClient {
     try (TransportClient client = clientFactory.createUnmanagedClient(host, port)) {
       ByteBuffer registerMessage = new RegisterExecutor(appId, execId, executorInfo).toByteBuffer();
       client.sendRpcSync(registerMessage, registrationTimeoutMs);
+    }
+  }
+  /**
+   * unregisters this executor with an external shuffle server. This registration is required to
+   * inform the shuffle server about where and how we store our shuffle files.
+   *
+   * @param host Host of shuffle server.
+   * @param port Port of shuffle server.
+   * @param execId This Executor's id.
+   */
+  public void unRegisterWithShuffleServer(
+          String host,
+          int port,
+          String execId) throws IOException, InterruptedException {
+    checkInit();
+    try (TransportClient client = clientFactory.createUnmanagedClient(host, port)) {
+      logger.info("发送取消Executor注册消息：" + execId);
+      ByteBuffer registerMessage = new UnRegisterExecutor(appId, execId).toByteBuffer();
+      client.sendRpcSync(registerMessage, 5000 /* timeoutMs */);
     }
   }
 
