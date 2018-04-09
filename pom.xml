@@ -85,6 +85,7 @@
     <module>common/sketch</module>
     <module>common/network-common</module>
     <module>common/network-shuffle</module>
+    <module>common/network-yarn</module>
     <module>common/unsafe</module>
     <module>common/tags</module>
     <module>core</module>

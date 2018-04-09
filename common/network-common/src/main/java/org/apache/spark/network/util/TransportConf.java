@@ -45,6 +45,10 @@ public class TransportConf {
 
   private final String module;
 
+  public ConfigProvider getConf() {
+    return conf;
+  }
+
   public TransportConf(String module, ConfigProvider conf) {
     this.module = module;
     this.conf = conf;

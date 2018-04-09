@@ -34,6 +34,8 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.FileContext;
+import org.apache.hadoop.fs.Path;
 import org.iq80.leveldb.DB;
 import org.iq80.leveldb.DBIterator;
 import org.slf4j.Logger;
@@ -64,7 +66,12 @@ public class ExternalShuffleBlockResolver {
    */
   private static final String APP_KEY_PREFIX = "AppExecShuffleInfo";
   private static final StoreVersion CURRENT_VERSION = new StoreVersion(1, 0);
+  private static final long DEFAULT_EXECUTOR_TIME_OUT = 21600000;
+  private static final long DEFAULT_CLEAN_INTERVAL = 3600000;
 
+  private long executorTimeOut = DEFAULT_EXECUTOR_TIME_OUT;
+  private long cleanThreadInterval = DEFAULT_CLEAN_INTERVAL;
+  private boolean cleanerEnabled = false;
   // Map containing all registered executors' metadata.
   @VisibleForTesting
   final ConcurrentMap<AppExecId, ExecutorShuffleInfo> executors;
@@ -79,6 +86,10 @@ public class ExternalShuffleBlockResolver {
   private final Executor directoryCleaner;
 
   private final TransportConf conf;
+
+  private final Map<AppExecId, Long> executorUnRegisterMap = Maps.newConcurrentMap();
+  private Thread cleanThread;
+  private FileContext fileContext = FileContext.getLocalFSFileContext();
 
   @VisibleForTesting
   final File registeredExecutorFile;
@@ -103,6 +114,12 @@ public class ExternalShuffleBlockResolver {
       File registeredExecutorFile,
       Executor directoryCleaner) throws IOException {
     this.conf = conf;
+    this.executorTimeOut = conf.getInt("yarn.spark.shuffle.service.executor.timeout", Long.valueOf(DEFAULT_EXECUTOR_TIME_OUT).intValue());
+    this.cleanThreadInterval = conf.getInt("yarn.spark.shuffle.service.clean.interval", Long.valueOf(DEFAULT_CLEAN_INTERVAL).intValue());
+    this.cleanerEnabled = conf.getConf().getBoolean("yarn.spark.shuffle.service.cleaner.enabled", false);
+    logger.info("yarn.spark.shuffle.service.executor.timeout: " + executorTimeOut);
+    logger.info("yarn.spark.shuffle.service.clean.interval: " + cleanThreadInterval);
+
     this.registeredExecutorFile = registeredExecutorFile;
     int indexCacheEntries = conf.getInt("spark.shuffle.service.index.cache.entries", 1024);
     CacheLoader<File, ShuffleIndexInformation> indexCacheLoader =
@@ -120,6 +137,35 @@ public class ExternalShuffleBlockResolver {
       executors = Maps.newConcurrentMap();
     }
     this.directoryCleaner = directoryCleaner;
+    if (cleanerEnabled) {
+      cleanThread = new Thread(new Runnable() {
+        @Override
+        public void run() {
+          try {
+            while (true) {
+              logger.info("开始清理");
+              long currentMillis = System.currentTimeMillis();
+
+              if (!executorUnRegisterMap.isEmpty()) {
+                for (Map.Entry<AppExecId, Long> entry : executorUnRegisterMap.entrySet()) {
+                  logger.info("Executor：" + entry.getKey() + "注册时间：" + new Date(entry.getValue()).toString());
+                  if (currentMillis - entry.getValue() > executorTimeOut) {
+                    // 清理超过6小时的Executor
+                    cleanExecutor(entry.getKey(), true);
+                  }
+                }
+              }
+              Thread.sleep(cleanThreadInterval);
+            }
+          } catch (InterruptedException e) {
+            logger.info("block清理线程中断", e);
+          }
+        }
+
+      });
+      cleanThread.start();
+      logger.info("清理线程启动成功！");
+    }
   }
 
   public int getRegisteredExecutorsSize() {
@@ -132,7 +178,7 @@ public class ExternalShuffleBlockResolver {
       String execId,
       ExecutorShuffleInfo executorInfo) {
     AppExecId fullId = new AppExecId(appId, execId);
-    logger.info("Registered executor {} with {}", fullId, executorInfo);
+    logger.info("收到Executor注册请求 {} with {}", fullId, executorInfo);
     if (!knownManagers.contains(executorInfo.shuffleManager)) {
       throw new UnsupportedOperationException(
         "Unsupported shuffle manager of executor: " + executorInfo);
@@ -147,6 +193,15 @@ public class ExternalShuffleBlockResolver {
       logger.error("Error saving registered executors", e);
     }
     executors.put(fullId, executorInfo);
+
+  }
+
+  public void unRegisterExecutor(String appId,
+                                 String execId){
+      AppExecId fullId = new AppExecId(appId, execId);
+      logger.info("收到取消注册请求：" + fullId);
+      long currentMillis = System.currentTimeMillis();
+      executorUnRegisterMap.put(fullId, currentMillis);
   }
 
   /**
@@ -188,27 +243,33 @@ public class ExternalShuffleBlockResolver {
     while (it.hasNext()) {
       Map.Entry<AppExecId, ExecutorShuffleInfo> entry = it.next();
       AppExecId fullId = entry.getKey();
-      final ExecutorShuffleInfo executor = entry.getValue();
-
       // Only touch executors associated with the appId that was removed.
       if (appId.equals(fullId.appId)) {
-        it.remove();
-        if (db != null) {
-          try {
-            db.delete(dbAppExecKey(fullId));
-          } catch (IOException e) {
-            logger.error("Error deleting {} from executor state db", appId, e);
-          }
-        }
-
-        if (cleanupLocalDirs) {
-          logger.info("Cleaning up executor {}'s {} local dirs", fullId, executor.localDirs.length);
-
-          // Execute the actual deletion in a different thread, as it may take some time.
-          directoryCleaner.execute(() -> deleteExecutorDirs(executor.localDirs));
-        }
+        cleanExecutor(fullId, cleanupLocalDirs);
       }
     }
+  }
+
+  public void cleanExecutor(AppExecId execId, boolean cleanDir){
+
+      if (!executors.containsKey(execId)) return;
+      final ExecutorShuffleInfo executor = executors.get(execId);
+      executors.remove(execId);
+      executorUnRegisterMap.remove(execId);
+      if (db != null) {
+        try {
+          db.delete(dbAppExecKey(execId));
+        } catch (IOException e) {
+          logger.error("Error deleting {} from executor state db", execId, e);
+        }
+      }
+
+      if (cleanDir) {
+        logger.info("Cleaning up executor {}'s {} local dirs", execId, executor.localDirs.length);
+
+        // Execute the actual deletion in a different thread, as it may take some time.
+        directoryCleaner.execute(() -> deleteExecutorDirs(executor.localDirs));
+      }
   }
 
   /**
@@ -217,8 +278,14 @@ public class ExternalShuffleBlockResolver {
    */
   private void deleteExecutorDirs(String[] dirs) {
     for (String localDir : dirs) {
+      logger.info("开始删除文件：" + localDir);
       try {
-        JavaUtils.deleteRecursively(new File(localDir));
+        File file = new File(localDir);
+//          Path path = new Path(localDir);
+//          fileContext.delete(path, true);
+        if (file.exists()) {
+          JavaUtils.deleteRecursively(file);
+        }
         logger.debug("Successfully cleaned up directory: {}", localDir);
       } catch (Exception e) {
         logger.error("Failed to delete directory: " + localDir, e);
