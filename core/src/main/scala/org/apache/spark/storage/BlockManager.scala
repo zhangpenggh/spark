@@ -20,12 +20,13 @@ package org.apache.spark.storage
 import java.io._
 import java.nio.ByteBuffer
 import java.nio.channels.Channels
-import java.lang.Process
+import java.nio.file.attribute.PosixFilePermissions
+import java.nio.file.{Files, Paths}
 
 import scala.collection.mutable
 import scala.collection.mutable.HashMap
-import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.util.Random
 import scala.util.control.NonFatal
@@ -132,6 +133,9 @@ private[spark] class BlockManager(
       !externalShuffleServiceEnabled || executorId == SparkContext.DRIVER_IDENTIFIER
     new DiskBlockManager(conf, deleteFilesOnStop)
   }
+
+
+  val permissions = PosixFilePermissions.fromString("rwxrwxrwx");
 
   // Visible for testing
   private[storage] val blockInfoManager = new BlockInfoManager
@@ -244,29 +248,14 @@ private[spark] class BlockManager(
     // Register Executors' configuration with the local shuffle service, if one should exist.
     if (externalShuffleServiceEnabled && !blockManagerId.isDriver) {
       registerWithExternalShuffleServer()
-      ShutdownHookManager.addShutdownHook(() =>
-        unRegisterWithExternalShuffleServer);
+      ShutdownHookManager.addShutdownHook(() =>{
+        logInfo("触发shutdown hook")
+        unRegisterWithExternalShuffleServer});
     }
 
     logInfo(s"Initialized BlockManager: $blockManagerId")
   }
 
-  private def dirChmod(file: File) {
-    var process:Process = null
-    try {
-      val cmd = "chmod -R 777 ".concat(file.getParentFile.getAbsolutePath)
-      logInfo("修改目录权限：".concat(cmd))
-      process = Runtime.getRuntime.exec(cmd)
-      process.waitFor()
-    } catch {
-      case e : Exception =>
-        logError(e.getMessage, e)
-    } finally {
-      if (process != null) {
-        process.destroy()
-      }
-    }
-  }
 
   private def registerWithExternalShuffleServer() {
     logInfo("Registering executor with local external shuffle service.")
@@ -301,27 +290,22 @@ private[spark] class BlockManager(
     logInfo("un-registering executor with local external shuffle service.")
     val MAX_ATTEMPTS = 3
     val SLEEP_TIME_SECS = 5
-
-    if (diskBlockManager.localDirs != null && diskBlockManager.localDirs.length > 0) {
-      diskBlockManager.localDirs.foreach(dirChmod)
-    }
-
     for (i <- 1 to MAX_ATTEMPTS) {
       try {
         // Synchronous and will throw an exception if we cannot connect.
-        shuffleClient.asInstanceOf[ExternalShuffleClient].unRegisterWithShuffleServer(
+          shuffleClient.asInstanceOf[ExternalShuffleClient].unRegisterWithShuffleServer(
           shuffleServerId.host, shuffleServerId.port, shuffleServerId.executorId)
+        logInfo("取消注册结束")
         return
       } catch {
         case e: Exception if i < MAX_ATTEMPTS =>
           logError(s"Failed to connect to external shuffle server, will retry ${MAX_ATTEMPTS - i}"
             + s" more times after waiting $SLEEP_TIME_SECS seconds...", e)
           Thread.sleep(SLEEP_TIME_SECS * 1000)
-        case NonFatal(e) =>
-          throw new SparkException("Unable to register with external shuffle server due to : " +
-            e.getMessage, e)
       }
     }
+
+
   }
 
   /**
@@ -1529,6 +1513,7 @@ private[spark] class BlockManager(
 
   def stop(): Unit = {
     if (externalShuffleServiceEnabled && !blockManagerId.isDriver) {
+      logInfo("发送executor的删除信息到external shuffle service");
       unRegisterWithExternalShuffleServer();
     }
     blockTransferService.close()

@@ -147,11 +147,13 @@ public class ExternalShuffleClient extends ShuffleClient {
           String host,
           int port,
           String execId) throws IOException, InterruptedException {
-    checkInit();
     try (TransportClient client = clientFactory.createUnmanagedClient(host, port)) {
       logger.info("发送取消Executor注册消息：" + execId);
       ByteBuffer registerMessage = new UnRegisterExecutor(appId, execId).toByteBuffer();
-      client.sendRpcSync(registerMessage, 5000 /* timeoutMs */);
+      client.send(registerMessage);
+    } catch (Exception e) {
+      logger.error("发送取消注册信息失败！", e);
+      throw e;
     }
   }
 

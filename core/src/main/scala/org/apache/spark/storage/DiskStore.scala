@@ -22,20 +22,19 @@ import java.nio.ByteBuffer
 import java.nio.channels.{Channels, ReadableByteChannel, WritableByteChannel}
 import java.nio.channels.FileChannel.MapMode
 import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.mutable.ListBuffer
-
 import com.google.common.io.{ByteStreams, Closeables, Files}
 import io.netty.channel.FileRegion
 import io.netty.util.AbstractReferenceCounted
-
 import org.apache.spark.{SecurityManager, SparkConf}
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.buffer.ManagedBuffer
 import org.apache.spark.network.util.JavaUtils
 import org.apache.spark.security.CryptoStreamUtils
-import org.apache.spark.util.{ByteBufferInputStream, Utils}
+import org.apache.spark.util.{ByteBufferInputStream, FilePermissionUtil, Utils}
 import org.apache.spark.util.io.ChunkedByteBuffer
 
 /**
@@ -60,9 +59,13 @@ private[spark] class DiskStore(
     if (contains(blockId)) {
       throw new IllegalStateException(s"Block $blockId is already present in the disk store")
     }
-    logDebug(s"Attempting to put block $blockId")
+    logInfo(s"Attempting to put block $blockId")
     val startTime = System.currentTimeMillis
     val file = diskManager.getFile(blockId)
+    if (!file.exists()) {
+      file.createNewFile()
+      FilePermissionUtil.setAllPermission(file)
+    }
     val out = new CountingWritableChannel(openForWrite(file))
     var threwException: Boolean = true
     try {

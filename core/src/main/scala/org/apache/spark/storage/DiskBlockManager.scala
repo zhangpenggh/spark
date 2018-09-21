@@ -18,12 +18,13 @@
 package org.apache.spark.storage
 
 import java.io.{File, IOException}
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.UUID
 
 import org.apache.spark.SparkConf
 import org.apache.spark.executor.ExecutorExitCode
 import org.apache.spark.internal.Logging
-import org.apache.spark.util.{ShutdownHookManager, Utils}
+import org.apache.spark.util.{FilePermissionUtil, ShutdownHookManager, Utils}
 
 /**
  * Creates and maintains the logical mapping between logical blocks and physical on-disk
@@ -35,7 +36,6 @@ import org.apache.spark.util.{ShutdownHookManager, Utils}
 private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolean) extends Logging {
 
   private[spark] val subDirsPerLocalDir = conf.getInt("spark.diskStore.subDirectories", 64)
-
   /* Create one local directory for each path mentioned in spark.local.dir; then, inside this
    * directory, create multiple subdirectories that we will hash files into, in order to avoid
    * having really large inodes at the top level. */
@@ -70,6 +70,7 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
           throw new IOException(s"Failed to create local dir in $newDir.")
         }
         subDirs(dirId)(subDirId) = newDir
+        FilePermissionUtil.setAllPermission(newDir)
         newDir
       }
     }
@@ -139,6 +140,7 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
     Utils.getConfiguredLocalDirs(conf).flatMap { rootDir =>
       try {
         val localDir = Utils.createDirectory(rootDir, "blockmgr")
+        FilePermissionUtil.setAllPermission(localDir)
         logInfo(s"Created local directory at $localDir")
         Some(localDir)
       } catch {
