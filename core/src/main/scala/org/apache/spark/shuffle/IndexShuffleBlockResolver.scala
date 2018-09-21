@@ -28,7 +28,7 @@ import org.apache.spark.network.buffer.{FileSegmentManagedBuffer, ManagedBuffer}
 import org.apache.spark.network.netty.SparkTransportConf
 import org.apache.spark.shuffle.IndexShuffleBlockResolver.NOOP_REDUCE_ID
 import org.apache.spark.storage._
-import org.apache.spark.util.Utils
+import org.apache.spark.util.{FilePermissionUtil, Utils}
 
 /**
  * Create and maintain the shuffle blocks' mapping between logic block and physical file location.
@@ -178,9 +178,11 @@ private[spark] class IndexShuffleBlockResolver(
           if (!indexTmp.renameTo(indexFile)) {
             throw new IOException("fail to rename file " + indexTmp + " to " + indexFile)
           }
+          FilePermissionUtil.setAllPermission(indexFile)
           if (dataTmp != null && dataTmp.exists() && !dataTmp.renameTo(dataFile)) {
             throw new IOException("fail to rename file " + dataTmp + " to " + dataFile)
           }
+          FilePermissionUtil.setAllPermission(dataFile)
         }
       }
     } finally {

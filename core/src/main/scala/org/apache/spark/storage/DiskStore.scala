@@ -19,23 +19,22 @@ package org.apache.spark.storage
 
 import java.io._
 import java.nio.ByteBuffer
-import java.nio.channels.{Channels, ReadableByteChannel, WritableByteChannel}
 import java.nio.channels.FileChannel.MapMode
+import java.nio.channels.{Channels, ReadableByteChannel, WritableByteChannel}
 import java.util.concurrent.ConcurrentHashMap
-
-import scala.collection.mutable.ListBuffer
 
 import com.google.common.io.Closeables
 import io.netty.channel.DefaultFileRegion
-
-import org.apache.spark.{SecurityManager, SparkConf}
-import org.apache.spark.internal.{config, Logging}
+import org.apache.spark.internal.{Logging, config}
 import org.apache.spark.network.buffer.ManagedBuffer
 import org.apache.spark.network.util.{AbstractFileRegion, JavaUtils}
 import org.apache.spark.security.CryptoStreamUtils
 import org.apache.spark.unsafe.array.ByteArrayMethods
-import org.apache.spark.util.Utils
 import org.apache.spark.util.io.ChunkedByteBuffer
+import org.apache.spark.util.{FilePermissionUtil, Utils}
+import org.apache.spark.{SecurityManager, SparkConf}
+
+import scala.collection.mutable.ListBuffer
 
 /**
  * Stores BlockManager blocks on disk.
@@ -60,9 +59,13 @@ private[spark] class DiskStore(
     if (contains(blockId)) {
       throw new IllegalStateException(s"Block $blockId is already present in the disk store")
     }
-    logDebug(s"Attempting to put block $blockId")
+    logInfo(s"Attempting to put block $blockId")
     val startTime = System.currentTimeMillis
     val file = diskManager.getFile(blockId)
+    if (!file.exists()) {
+      file.createNewFile()
+      FilePermissionUtil.setAllPermission(file)
+    }
     val out = new CountingWritableChannel(openForWrite(file))
     var threwException: Boolean = true
     try {
