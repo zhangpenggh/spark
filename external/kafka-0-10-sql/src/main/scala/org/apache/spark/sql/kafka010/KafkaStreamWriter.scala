@@ -42,11 +42,11 @@ case object KafkaWriterCommitMessage extends WriterCommitMessage
  */
 class KafkaStreamWriter(
     topic: Option[String], producerParams: Map[String, String], schema: StructType)
-  extends StreamWriter with SupportsWriteInternalRow {
+  extends StreamWriter {
 
   validateQuery(schema.toAttributes, producerParams.toMap[String, Object].asJava, topic)
 
-  override def createInternalRowWriterFactory(): KafkaStreamWriterFactory =
+  override def createWriterFactory(): KafkaStreamWriterFactory =
     KafkaStreamWriterFactory(topic, producerParams, schema)
 
   override def commit(epochId: Long, messages: Array[WriterCommitMessage]): Unit = {}
@@ -54,8 +54,8 @@ class KafkaStreamWriter(
 }
 
 /**
- * A [[DataWriterFactory]] for Kafka writing. Will be serialized and sent to executors to generate
- * the per-task data writers.
+ * A [[StreamingDataWriterFactory]] for Kafka writing. Will be serialized and sent to executors to
+ * generate the per-task data writers.
  * @param topic The topic that should be written to. If None, topic will be inferred from
  *              a `topic` field in the incoming data.
  * @param producerParams Parameters for Kafka producers in each task.
@@ -67,7 +67,7 @@ case class KafkaStreamWriterFactory(
 
   override def createDataWriter(
       partitionId: Int,
-      attemptNumber: Int,
+      taskId: Long,
       epochId: Long): DataWriter[InternalRow] = {
     new KafkaStreamDataWriter(topic, producerParams, schema.toAttributes)
   }

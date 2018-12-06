@@ -215,7 +215,7 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
       check[TaskDataWrapper](task.taskId) { wrapper =>
         assert(wrapper.taskId === task.taskId)
         assert(wrapper.stageId === stages.head.stageId)
-        assert(wrapper.stageAttemptId === stages.head.attemptId)
+        assert(wrapper.stageAttemptId === stages.head.attemptNumber)
         assert(wrapper.index === task.index)
         assert(wrapper.attempt === task.attemptNumber)
         assert(wrapper.launchTime === task.launchTime)
@@ -258,7 +258,7 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
       executorId = execIds.head,
       taskFailures = 2,
       stageId = stages.head.stageId,
-      stageAttemptId = stages.head.attemptId))
+      stageAttemptId = stages.head.attemptNumber))
 
     val executorStageSummaryWrappers =
       store.view(classOf[ExecutorStageSummaryWrapper]).index("stage")
@@ -284,7 +284,7 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
       hostId = "2.example.com", // this is where the second executor is hosted
       executorFailures = 1,
       stageId = stages.head.stageId,
-      stageAttemptId = stages.head.attemptId))
+      stageAttemptId = stages.head.attemptNumber))
 
     val executorStageSummaryWrappersForNode =
       store.view(classOf[ExecutorStageSummaryWrapper]).index("stage")
@@ -468,7 +468,7 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
       hostId = "1.example.com",
       executorFailures = 1,
       stageId = stages.last.stageId,
-      stageAttemptId = stages.last.attemptId))
+      stageAttemptId = stages.last.attemptNumber))
 
     check[ExecutorSummaryWrapper](execIds.head) { exec =>
       assert(exec.info.blacklistedInStages === Set(stages.last.stageId))
@@ -881,10 +881,39 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
       assert(dist.memoryRemaining === maxMemory - rdd2b1.memSize - rdd1b2.memSize )
     }
 
+    // Add block1 of rdd1 back to bm 1.
+    listener.onBlockUpdated(SparkListenerBlockUpdated(
+      BlockUpdatedInfo(bm1, rdd1b1.blockId, level, rdd1b1.memSize, rdd1b1.diskSize)))
+
+    check[ExecutorSummaryWrapper](bm1.executorId) { exec =>
+      assert(exec.info.rddBlocks === 3L)
+      assert(exec.info.memoryUsed === rdd1b1.memSize + rdd1b2.memSize + rdd2b1.memSize)
+      assert(exec.info.diskUsed === rdd1b1.diskSize + rdd1b2.diskSize + rdd2b1.diskSize)
+    }
+
     // Unpersist RDD1.
     listener.onUnpersistRDD(SparkListenerUnpersistRDD(rdd1b1.rddId))
     intercept[NoSuchElementException] {
       check[RDDStorageInfoWrapper](rdd1b1.rddId) { _ => () }
+    }
+
+    // executor1 now only contains block1 from rdd2.
+    check[ExecutorSummaryWrapper](bm1.executorId) { exec =>
+      assert(exec.info.rddBlocks === 1L)
+      assert(exec.info.memoryUsed === rdd2b1.memSize)
+      assert(exec.info.diskUsed === rdd2b1.diskSize)
+    }
+
+    // Unpersist RDD2.
+    listener.onUnpersistRDD(SparkListenerUnpersistRDD(rdd2b1.rddId))
+    intercept[NoSuchElementException] {
+      check[RDDStorageInfoWrapper](rdd2b1.rddId) { _ => () }
+    }
+
+    check[ExecutorSummaryWrapper](bm1.executorId) { exec =>
+      assert(exec.info.rddBlocks === 0L)
+      assert(exec.info.memoryUsed === 0)
+      assert(exec.info.diskUsed === 0)
     }
 
     // Update a StreamBlock.
@@ -963,17 +992,17 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
     // task end event.
     time += 1
     val task = createTasks(1, Array("1")).head
-    listener.onTaskStart(SparkListenerTaskStart(dropped.stageId, dropped.attemptId, task))
+    listener.onTaskStart(SparkListenerTaskStart(dropped.stageId, dropped.attemptNumber, task))
 
     time += 1
     task.markFinished(TaskState.FINISHED, time)
     val metrics = TaskMetrics.empty
     metrics.setExecutorRunTime(42L)
-    listener.onTaskEnd(SparkListenerTaskEnd(dropped.stageId, dropped.attemptId,
+    listener.onTaskEnd(SparkListenerTaskEnd(dropped.stageId, dropped.attemptNumber,
       "taskType", Success, task, metrics))
 
     new AppStatusStore(store)
-      .taskSummary(dropped.stageId, dropped.attemptId, Array(0.25d, 0.50d, 0.75d))
+      .taskSummary(dropped.stageId, dropped.attemptNumber, Array(0.25d, 0.50d, 0.75d))
     assert(store.count(classOf[CachedQuantile], "stage", key(dropped)) === 3)
 
     stages.drop(1).foreach { s =>
@@ -1188,6 +1217,128 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
     assert(appStore.asOption(appStore.lastStageAttempt(1)) === None)
     assert(appStore.asOption(appStore.lastStageAttempt(2)).map(_.stageId) === Some(2))
     assert(appStore.asOption(appStore.lastStageAttempt(3)) === None)
+  }
+
+  test("SPARK-24415: update metrics for tasks that finish late") {
+    val listener = new AppStatusListener(store, conf, true)
+
+    val stage1 = new StageInfo(1, 0, "stage1", 4, Nil, Nil, "details1")
+    val stage2 = new StageInfo(2, 0, "stage2", 4, Nil, Nil, "details2")
+
+    // Start job
+    listener.onJobStart(SparkListenerJobStart(1, time, Seq(stage1, stage2), null))
+
+    // Start 2 stages
+    listener.onStageSubmitted(SparkListenerStageSubmitted(stage1, new Properties()))
+    listener.onStageSubmitted(SparkListenerStageSubmitted(stage2, new Properties()))
+
+    // Start 2 Tasks
+    val tasks = createTasks(2, Array("1"))
+    tasks.foreach { task =>
+      listener.onTaskStart(SparkListenerTaskStart(stage1.stageId, stage1.attemptNumber, task))
+    }
+
+    // Task 1 Finished
+    time += 1
+    tasks(0).markFinished(TaskState.FINISHED, time)
+    listener.onTaskEnd(
+      SparkListenerTaskEnd(stage1.stageId, stage1.attemptId, "taskType", Success, tasks(0), null))
+
+    // Stage 1 Completed
+    stage1.failureReason = Some("Failed")
+    listener.onStageCompleted(SparkListenerStageCompleted(stage1))
+
+    // Stop job 1
+    time += 1
+    listener.onJobEnd(SparkListenerJobEnd(1, time, JobSucceeded))
+
+    // Task 2 Killed
+    time += 1
+    tasks(1).markFinished(TaskState.FINISHED, time)
+    listener.onTaskEnd(
+      SparkListenerTaskEnd(stage1.stageId, stage1.attemptId, "taskType",
+        TaskKilled(reason = "Killed"), tasks(1), null))
+
+    // Ensure killed task metrics are updated
+    val allStages = store.view(classOf[StageDataWrapper]).reverse().asScala.map(_.info)
+    val failedStages = allStages.filter(_.status == v1.StageStatus.FAILED)
+    assert(failedStages.size == 1)
+    assert(failedStages.head.numKilledTasks == 1)
+    assert(failedStages.head.numCompleteTasks == 1)
+
+    val allJobs = store.view(classOf[JobDataWrapper]).reverse().asScala.map(_.info)
+    assert(allJobs.size == 1)
+    assert(allJobs.head.numKilledTasks == 1)
+    assert(allJobs.head.numCompletedTasks == 1)
+    assert(allJobs.head.numActiveStages == 1)
+    assert(allJobs.head.numFailedStages == 1)
+  }
+
+  Seq(true, false).foreach { live =>
+    test(s"Total tasks in the executor summary should match total stage tasks (live = $live)") {
+
+      val testConf = if (live) {
+        conf.clone().set(LIVE_ENTITY_UPDATE_PERIOD, Long.MaxValue)
+      } else {
+        conf.clone().set(LIVE_ENTITY_UPDATE_PERIOD, -1L)
+      }
+
+      val listener = new AppStatusListener(store, testConf, live)
+
+      Seq("1", "2").foreach { execId =>
+        listener.onExecutorAdded(SparkListenerExecutorAdded(0L, execId,
+          new ExecutorInfo("host1", 1, Map.empty)))
+      }
+      val stage = new StageInfo(1, 0, "stage", 4, Nil, Nil, "details")
+      listener.onJobStart(SparkListenerJobStart(1, time, Seq(stage), null))
+      listener.onStageSubmitted(SparkListenerStageSubmitted(stage, new Properties()))
+
+      val tasks = createTasks(4, Array("1", "2"))
+      tasks.foreach { task =>
+        listener.onTaskStart(SparkListenerTaskStart(stage.stageId, stage.attemptNumber, task))
+      }
+
+      time += 1
+      tasks(0).markFinished(TaskState.FINISHED, time)
+      listener.onTaskEnd(SparkListenerTaskEnd(stage.stageId, stage.attemptNumber, "taskType",
+        Success, tasks(0), null))
+      time += 1
+      tasks(1).markFinished(TaskState.FINISHED, time)
+      listener.onTaskEnd(SparkListenerTaskEnd(stage.stageId, stage.attemptNumber, "taskType",
+        Success, tasks(1), null))
+
+      stage.failureReason = Some("Failed")
+      listener.onStageCompleted(SparkListenerStageCompleted(stage))
+      time += 1
+      listener.onJobEnd(SparkListenerJobEnd(1, time, JobFailed(
+        new RuntimeException("Bad Executor"))))
+
+      time += 1
+      tasks(2).markFinished(TaskState.FAILED, time)
+      listener.onTaskEnd(SparkListenerTaskEnd(stage.stageId, stage.attemptNumber, "taskType",
+        ExecutorLostFailure("1", true, Some("Lost executor")), tasks(2), null))
+      time += 1
+      tasks(3).markFinished(TaskState.FAILED, time)
+      listener.onTaskEnd(SparkListenerTaskEnd(stage.stageId, stage.attemptNumber, "taskType",
+        ExecutorLostFailure("2", true, Some("Lost executor")), tasks(3), null))
+
+      val esummary = store.view(classOf[ExecutorStageSummaryWrapper]).asScala.map(_.info)
+      esummary.foreach { execSummary =>
+        assert(execSummary.failedTasks === 1)
+        assert(execSummary.succeededTasks === 1)
+        assert(execSummary.killedTasks === 0)
+      }
+
+      val allExecutorSummary = store.view(classOf[ExecutorSummaryWrapper]).asScala.map(_.info)
+      assert(allExecutorSummary.size === 2)
+      allExecutorSummary.foreach { allExecSummary =>
+        assert(allExecSummary.failedTasks === 1)
+        assert(allExecSummary.activeTasks === 0)
+        assert(allExecSummary.completedTasks === 1)
+      }
+      store.delete(classOf[ExecutorSummaryWrapper], "1")
+      store.delete(classOf[ExecutorSummaryWrapper], "2")
+    }
   }
 
   test("driver logs") {

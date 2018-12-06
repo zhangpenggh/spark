@@ -136,6 +136,29 @@ private[spark] class Executor(
   // for fetching remote cached RDD blocks, so need to make sure it uses the right classloader too.
   env.serializerManager.setDefaultClassLoader(replClassLoader)
 
+  private val executorPlugins: Seq[ExecutorPlugin] = {
+    val pluginNames = conf.get(EXECUTOR_PLUGINS)
+    if (pluginNames.nonEmpty) {
+      logDebug(s"Initializing the following plugins: ${pluginNames.mkString(", ")}")
+
+      // Plugins need to load using a class loader that includes the executor's user classpath
+      val pluginList: Seq[ExecutorPlugin] =
+        Utils.withContextClassLoader(replClassLoader) {
+          val plugins = Utils.loadExtensions(classOf[ExecutorPlugin], pluginNames, conf)
+          plugins.foreach { plugin =>
+            plugin.init()
+            logDebug(s"Successfully loaded plugin " + plugin.getClass().getCanonicalName())
+          }
+          plugins
+        }
+
+      logDebug("Finished initializing plugins")
+      pluginList
+    } else {
+      Nil
+    }
+  }
+
   // Max size of direct result. If task result is bigger than this, we use the block manager
   // to send the result back.
   private val maxDirectResultSize = Math.min(
@@ -219,6 +242,18 @@ private[spark] class Executor(
     heartbeater.shutdown()
     heartbeater.awaitTermination(10, TimeUnit.SECONDS)
     threadPool.shutdown()
+
+    // Notify plugins that executor is shutting down so they can terminate cleanly
+    Utils.withContextClassLoader(replClassLoader) {
+      executorPlugins.foreach { plugin =>
+        try {
+          plugin.shutdown()
+        } catch {
+          case e: Exception =>
+            logWarning("Plugin " + plugin.getClass().getCanonicalName() + " shutdown failed", e)
+        }
+      }
+    }
     if (!isLocal) {
       env.stop()
     }
@@ -287,6 +322,28 @@ private[spark] class Executor(
       notifyAll()
     }
 
+    /**
+     *  Utility function to:
+     *    1. Report executor runtime and JVM gc time if possible
+     *    2. Collect accumulator updates
+     *    3. Set the finished flag to true and clear current thread's interrupt status
+     */
+    private def collectAccumulatorsAndResetStatusOnFailure(taskStartTime: Long) = {
+      // Report executor runtime and JVM gc time
+      Option(task).foreach(t => {
+        t.metrics.setExecutorRunTime(System.currentTimeMillis() - taskStartTime)
+        t.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
+      })
+
+      // Collect latest accumulator values to report back to the driver
+      val accums: Seq[AccumulatorV2[_, _]] =
+        Option(task).map(_.collectAccumulatorUpdates(taskFailed = true)).getOrElse(Seq.empty)
+      val accUpdates = accums.map(acc => acc.toInfo(Some(acc.value), None))
+
+      setTaskFinishedAndClearInterruptStatus()
+      (accums, accUpdates)
+    }
+
     override def run(): Unit = {
       threadId = Thread.currentThread.getId
       Thread.currentThread.setName(threadName)
@@ -300,7 +357,7 @@ private[spark] class Executor(
       val ser = env.closureSerializer.newInstance()
       logInfo(s"Running $taskName (TID $taskId)")
       execBackend.statusUpdate(taskId, TaskState.RUNNING, EMPTY_BYTE_BUFFER)
-      var taskStart: Long = 0
+      var taskStartTime: Long = 0
       var taskStartCpu: Long = 0
       startGCTime = computeTotalGcTime()
 
@@ -336,19 +393,19 @@ private[spark] class Executor(
         }
 
         // Run the actual task and measure its runtime.
-        taskStart = System.currentTimeMillis()
+        taskStartTime = System.currentTimeMillis()
         taskStartCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
           threadMXBean.getCurrentThreadCpuTime
         } else 0L
         var threwException = true
-        val value = try {
+        val value = Utils.tryWithSafeFinally {
           val res = task.run(
             taskAttemptId = taskId,
             attemptNumber = taskDescription.attemptNumber,
             metricsSystem = env.metricsSystem)
           threwException = false
           res
-        } finally {
+        } {
           val releasedLocks = env.blockManager.releaseAllLocksForTask(taskId)
           val freedMemory = taskMemoryManager.cleanUpAllAllocatedMemory()
 
@@ -396,11 +453,11 @@ private[spark] class Executor(
         // Deserialization happens in two parts: first, we deserialize a Task object, which
         // includes the Partition. Second, Task.run() deserializes the RDD and function to be run.
         task.metrics.setExecutorDeserializeTime(
-          (taskStart - deserializeStartTime) + task.executorDeserializeTime)
+          (taskStartTime - deserializeStartTime) + task.executorDeserializeTime)
         task.metrics.setExecutorDeserializeCpuTime(
           (taskStartCpu - deserializeStartCpuTime) + task.executorDeserializeCpuTime)
         // We need to subtract Task.run()'s deserialization time to avoid double-counting
-        task.metrics.setExecutorRunTime((taskFinish - taskStart) - task.executorDeserializeTime)
+        task.metrics.setExecutorRunTime((taskFinish - taskStartTime) - task.executorDeserializeTime)
         task.metrics.setExecutorCpuTime(
           (taskFinishCpu - taskStartCpu) - task.executorDeserializeCpuTime)
         task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
@@ -442,7 +499,7 @@ private[spark] class Executor(
         executorSource.METRIC_OUTPUT_BYTES_WRITTEN
           .inc(task.metrics.outputMetrics.bytesWritten)
         executorSource.METRIC_OUTPUT_RECORDS_WRITTEN
-          .inc(task.metrics.inputMetrics.recordsRead)
+          .inc(task.metrics.outputMetrics.recordsWritten)
         executorSource.METRIC_RESULT_SIZE.inc(task.metrics.resultSize)
         executorSource.METRIC_DISK_BYTES_SPILLED.inc(task.metrics.diskBytesSpilled)
         executorSource.METRIC_MEMORY_BYTES_SPILLED.inc(task.metrics.memoryBytesSpilled)
@@ -480,6 +537,22 @@ private[spark] class Executor(
         execBackend.statusUpdate(taskId, TaskState.FINISHED, serializedResult)
 
       } catch {
+        case t: TaskKilledException =>
+          logInfo(s"Executor killed $taskName (TID $taskId), reason: ${t.reason}")
+
+          val (accums, accUpdates) = collectAccumulatorsAndResetStatusOnFailure(taskStartTime)
+          val serializedTK = ser.serialize(TaskKilled(t.reason, accUpdates, accums))
+          execBackend.statusUpdate(taskId, TaskState.KILLED, serializedTK)
+
+        case _: InterruptedException | NonFatal(_) if
+            task != null && task.reasonIfKilled.isDefined =>
+          val killReason = task.reasonIfKilled.getOrElse("unknown reason")
+          logInfo(s"Executor interrupted and killed $taskName (TID $taskId), reason: $killReason")
+
+          val (accums, accUpdates) = collectAccumulatorsAndResetStatusOnFailure(taskStartTime)
+          val serializedTK = ser.serialize(TaskKilled(killReason, accUpdates, accums))
+          execBackend.statusUpdate(taskId, TaskState.KILLED, serializedTK)
+
         case t: Throwable if hasFetchFailure && !Utils.isFatalError(t) =>
           val reason = task.context.fetchFailed.get.toTaskFailedReason
           if (!t.isInstanceOf[FetchFailedException]) {
@@ -493,19 +566,6 @@ private[spark] class Executor(
           }
           setTaskFinishedAndClearInterruptStatus()
           execBackend.statusUpdate(taskId, TaskState.FAILED, ser.serialize(reason))
-
-        case t: TaskKilledException =>
-          logInfo(s"Executor killed $taskName (TID $taskId), reason: ${t.reason}")
-          setTaskFinishedAndClearInterruptStatus()
-          execBackend.statusUpdate(taskId, TaskState.KILLED, ser.serialize(TaskKilled(t.reason)))
-
-        case _: InterruptedException | NonFatal(_) if
-            task != null && task.reasonIfKilled.isDefined =>
-          val killReason = task.reasonIfKilled.getOrElse("unknown reason")
-          logInfo(s"Executor interrupted and killed $taskName (TID $taskId), reason: $killReason")
-          setTaskFinishedAndClearInterruptStatus()
-          execBackend.statusUpdate(
-            taskId, TaskState.KILLED, ser.serialize(TaskKilled(killReason)))
 
         case CausedBy(cDE: CommitDeniedException) =>
           val reason = cDE.toTaskCommitDeniedReason
@@ -524,17 +584,7 @@ private[spark] class Executor(
           // the task failure would not be ignored if the shutdown happened because of premption,
           // instead of an app issue).
           if (!ShutdownHookManager.inShutdown()) {
-            // Collect latest accumulator values to report back to the driver
-            val accums: Seq[AccumulatorV2[_, _]] =
-              if (task != null) {
-                task.metrics.setExecutorRunTime(System.currentTimeMillis() - taskStart)
-                task.metrics.setJvmGCTime(computeTotalGcTime() - startGCTime)
-                task.collectAccumulatorUpdates(taskFailed = true)
-              } else {
-                Seq.empty
-              }
-
-            val accUpdates = accums.map(acc => acc.toInfo(Some(acc.value), None))
+            val (accums, accUpdates) = collectAccumulatorsAndResetStatusOnFailure(taskStartTime)
 
             val serializedTaskEndReason = {
               try {

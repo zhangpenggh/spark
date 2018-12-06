@@ -122,7 +122,7 @@ class CompressionCodecSuite extends TestHiveSingleton with ParquetTest with Befo
       """.stripMargin)
   }
 
-  private def writeDateToTableUsingCTAS(
+  private def writeDataToTableUsingCTAS(
       rootDir: File,
       tableName: String,
       partitionValue: Option[String],
@@ -152,7 +152,7 @@ class CompressionCodecSuite extends TestHiveSingleton with ParquetTest with Befo
       usingCTAS: Boolean): String = {
     val partitionValue = if (isPartitioned) Some("test") else None
     if (usingCTAS) {
-      writeDateToTableUsingCTAS(tmpDir, tableName, partitionValue, format, compressionCodec)
+      writeDataToTableUsingCTAS(tmpDir, tableName, partitionValue, format, compressionCodec)
     } else {
       createTable(tmpDir, tableName, isPartitioned, format, compressionCodec)
       writeDataToTable(tableName, partitionValue)
@@ -258,8 +258,7 @@ class CompressionCodecSuite extends TestHiveSingleton with ParquetTest with Befo
   def checkForTableWithCompressProp(format: String, compressCodecs: List[String]): Unit = {
     Seq(true, false).foreach { isPartitioned =>
       Seq(true, false).foreach { convertMetastore =>
-        // TODO: Also verify CTAS(usingCTAS=true) cases when the bug(SPARK-22926) is fixed.
-        Seq(false).foreach { usingCTAS =>
+        Seq(true, false).foreach { usingCTAS =>
           checkTableCompressionCodecForCodecs(
             format,
             isPartitioned,
@@ -268,12 +267,7 @@ class CompressionCodecSuite extends TestHiveSingleton with ParquetTest with Befo
             compressionCodecs = compressCodecs,
             tableCompressionCodecs = compressCodecs) {
             case (tableCodec, sessionCodec, realCodec, tableSize) =>
-              // For non-partitioned table and when convertMetastore is true, Expect session-level
-              // take effect, and in other cases expect table-level take effect
-              // TODO: It should always be table-level taking effect when the bug(SPARK-22926)
-              // is fixed
-              val expectCodec =
-                if (convertMetastore && !isPartitioned) sessionCodec else tableCodec.get
+              val expectCodec = tableCodec.get
               assert(expectCodec == realCodec)
               assert(checkTableSize(
                 format, expectCodec, isPartitioned, convertMetastore, usingCTAS, tableSize))
@@ -286,8 +280,7 @@ class CompressionCodecSuite extends TestHiveSingleton with ParquetTest with Befo
   def checkForTableWithoutCompressProp(format: String, compressCodecs: List[String]): Unit = {
     Seq(true, false).foreach { isPartitioned =>
       Seq(true, false).foreach { convertMetastore =>
-        // TODO: Also verify CTAS(usingCTAS=true) cases when the bug(SPARK-22926) is fixed.
-        Seq(false).foreach { usingCTAS =>
+        Seq(true, false).foreach { usingCTAS =>
           checkTableCompressionCodecForCodecs(
             format,
             isPartitioned,

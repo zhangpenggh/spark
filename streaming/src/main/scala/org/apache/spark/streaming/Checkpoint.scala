@@ -54,12 +54,11 @@ class Checkpoint(ssc: StreamingContext, val checkpointTime: Time)
       "spark.driver.bindAddress",
       "spark.driver.port",
       "spark.master",
+      "spark.kubernetes.driver.pod.name",
+      "spark.kubernetes.executor.podNamePrefix",
       "spark.yarn.jars",
       "spark.yarn.keytab",
       "spark.yarn.principal",
-      "spark.yarn.credentials.file",
-      "spark.yarn.credentials.renewalTime",
-      "spark.yarn.credentials.updateTime",
       "spark.ui.filters",
       "spark.mesos.driver.frameworkId")
 
@@ -67,6 +66,8 @@ class Checkpoint(ssc: StreamingContext, val checkpointTime: Time)
       .remove("spark.driver.host")
       .remove("spark.driver.bindAddress")
       .remove("spark.driver.port")
+      .remove("spark.kubernetes.driver.pod.name")
+      .remove("spark.kubernetes.executor.podNamePrefix")
     val newReloadConf = new SparkConf(loadDefaults = true)
     propertiesToReload.foreach { prop =>
       newReloadConf.getOption(prop).foreach { value =>

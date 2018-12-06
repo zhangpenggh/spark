@@ -19,12 +19,16 @@ package org.apache.spark.sql.catalyst.expressions
 
 import java.sql.Timestamp
 
+import org.apache.log4j.{Appender, AppenderSkeleton, Logger}
+import org.apache.log4j.spi.LoggingEvent
+
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.metrics.source.CodegenMetrics
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.objects._
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, DateTimeUtils}
 import org.apache.spark.sql.types._
@@ -441,5 +445,122 @@ class CodeGenerationSuite extends SparkFunSuite with ExpressionEvalHelper {
     assert(CodeGenerator.calculateParamLength(Seq.range(0, 100).map(Literal(_))) == 101)
     assert(CodeGenerator.calculateParamLength(
       Seq.range(0, 100).map(x => Literal(x.toLong))) == 201)
+  }
+
+  test("SPARK-23760: CodegenContext.withSubExprEliminationExprs should save/restore correctly") {
+
+    val ref = BoundReference(0, IntegerType, true)
+    val add1 = Add(ref, ref)
+    val add2 = Add(add1, add1)
+    val dummy = SubExprEliminationState(
+      JavaCode.variable("dummy", BooleanType),
+      JavaCode.variable("dummy", BooleanType))
+
+    // raw testing of basic functionality
+    {
+      val ctx = new CodegenContext
+      val e = ref.genCode(ctx)
+      // before
+      ctx.subExprEliminationExprs += ref -> SubExprEliminationState(e.isNull, e.value)
+      assert(ctx.subExprEliminationExprs.contains(ref))
+      // call withSubExprEliminationExprs
+      ctx.withSubExprEliminationExprs(Map(add1 -> dummy)) {
+        assert(ctx.subExprEliminationExprs.contains(add1))
+        assert(!ctx.subExprEliminationExprs.contains(ref))
+        Seq.empty
+      }
+      // after
+      assert(ctx.subExprEliminationExprs.nonEmpty)
+      assert(ctx.subExprEliminationExprs.contains(ref))
+      assert(!ctx.subExprEliminationExprs.contains(add1))
+    }
+
+    // emulate an actual codegen workload
+    {
+      val ctx = new CodegenContext
+      // before
+      ctx.generateExpressions(Seq(add2, add1), doSubexpressionElimination = true) // trigger CSE
+      assert(ctx.subExprEliminationExprs.contains(add1))
+      // call withSubExprEliminationExprs
+      ctx.withSubExprEliminationExprs(Map(ref -> dummy)) {
+        assert(ctx.subExprEliminationExprs.contains(ref))
+        assert(!ctx.subExprEliminationExprs.contains(add1))
+        Seq.empty
+      }
+      // after
+      assert(ctx.subExprEliminationExprs.nonEmpty)
+      assert(ctx.subExprEliminationExprs.contains(add1))
+      assert(!ctx.subExprEliminationExprs.contains(ref))
+    }
+  }
+
+  test("SPARK-23986: freshName can generate duplicated names") {
+    val ctx = new CodegenContext
+    val names1 = ctx.freshName("myName1") :: ctx.freshName("myName1") ::
+      ctx.freshName("myName11") :: Nil
+    assert(names1.distinct.length == 3)
+    val names2 = ctx.freshName("a") :: ctx.freshName("a") ::
+      ctx.freshName("a_1") :: ctx.freshName("a_0") :: Nil
+    assert(names2.distinct.length == 4)
+  }
+
+  test("SPARK-25113: should log when there exists generated methods above HugeMethodLimit") {
+    class MockAppender extends AppenderSkeleton {
+      var seenMessage = false
+
+      override def append(loggingEvent: LoggingEvent): Unit = {
+        if (loggingEvent.getRenderedMessage().contains("Generated method too long")) {
+          seenMessage = true
+        }
+      }
+
+      override def close(): Unit = {}
+      override def requiresLayout(): Boolean = false
+    }
+
+    val appender = new MockAppender()
+    withLogAppender(appender) {
+      val x = 42
+      val expr = HugeCodeIntExpression(x)
+      val proj = GenerateUnsafeProjection.generate(Seq(expr))
+      val actual = proj(null)
+      assert(actual.getInt(0) == x)
+    }
+    assert(appender.seenMessage)
+  }
+
+  private def withLogAppender(appender: Appender)(f: => Unit): Unit = {
+    val logger =
+      Logger.getLogger(classOf[CodeGenerator[_, _]].getName)
+    logger.addAppender(appender)
+    try f finally {
+      logger.removeAppender(appender)
+    }
+  }
+}
+
+case class HugeCodeIntExpression(value: Int) extends Expression {
+  override def nullable: Boolean = true
+  override def dataType: DataType = IntegerType
+  override def children: Seq[Expression] = Nil
+  override def eval(input: InternalRow): Any = value
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    // Assuming HugeMethodLimit to be 8000
+    val HugeMethodLimit = CodeGenerator.DEFAULT_JVM_HUGE_METHOD_LIMIT
+    // A single "int dummyN = 0;" will be at least 2 bytes of bytecode:
+    //   0: iconst_0
+    //   1: istore_1
+    // and it'll become bigger as the number of local variables increases.
+    // So 4000 such dummy local variable definitions are sufficient to bump the bytecode size
+    // of a generated method to above 8000 bytes.
+    val hugeCode = (0 until (HugeMethodLimit / 2)).map(i => s"int dummy$i = 0;").mkString("\n")
+    val code =
+      code"""{
+         |  $hugeCode
+         |}
+         |boolean ${ev.isNull} = false;
+         |int ${ev.value} = $value;
+       """.stripMargin
+    ev.copy(code = code)
   }
 }

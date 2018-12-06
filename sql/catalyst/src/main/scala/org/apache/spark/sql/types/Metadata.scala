@@ -190,6 +190,8 @@ object Metadata {
         JBool(x)
       case x: String =>
         JString(x)
+      case null =>
+        JNull
       case x: Metadata =>
         toJsonValue(x.map)
       case other =>
@@ -215,6 +217,8 @@ object Metadata {
         x.##
       case x: Metadata =>
         hash(x.map)
+      case null =>
+        0
       case other =>
         throw new RuntimeException(s"Do not support type ${other.getClass}.")
     }

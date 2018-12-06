@@ -376,6 +376,18 @@ class StandaloneRestSubmitSuite extends SparkFunSuite with BeforeAndAfterEach {
     assert(filteredVariables == Map("SPARK_VAR" -> "1"))
   }
 
+  test("client does not send 'SPARK_HOME' env var by default") {
+    val environmentVariables = Map("SPARK_VAR" -> "1", "SPARK_HOME" -> "1")
+    val filteredVariables = RestSubmissionClient.filterSystemEnvironment(environmentVariables)
+    assert(filteredVariables == Map("SPARK_VAR" -> "1"))
+  }
+
+  test("client does not send 'SPARK_CONF_DIR' env var by default") {
+    val environmentVariables = Map("SPARK_VAR" -> "1", "SPARK_CONF_DIR" -> "1")
+    val filteredVariables = RestSubmissionClient.filterSystemEnvironment(environmentVariables)
+    assert(filteredVariables == Map("SPARK_VAR" -> "1"))
+  }
+
   test("client includes mesos env vars") {
     val environmentVariables = Map("SPARK_VAR" -> "1", "MESOS_VAR" -> "1", "OTHER_VAR" -> "1")
     val filteredVariables = RestSubmissionClient.filterSystemEnvironment(environmentVariables)
@@ -445,7 +457,7 @@ class StandaloneRestSubmitSuite extends SparkFunSuite with BeforeAndAfterEach {
       "--class", mainClass,
       mainJar) ++ appArgs
     val args = new SparkSubmitArguments(commandLineArgs)
-    val (_, _, sparkConf, _) = SparkSubmit.prepareSubmitEnvironment(args)
+    val (_, _, sparkConf, _) = new SparkSubmit().prepareSubmitEnvironment(args)
     new RestSubmissionClient("spark://host:port").constructSubmitRequest(
       mainJar, mainClass, appArgs, sparkConf.getAll.toMap, Map.empty)
   }

@@ -26,6 +26,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{AnalysisException, DataFrame, Dataset, SparkSession}
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.DataSource
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Utils
 import org.apache.spark.sql.execution.streaming.{StreamingRelation, StreamingRelationV2}
 import org.apache.spark.sql.sources.StreamSourceProvider
 import org.apache.spark.sql.sources.v2.{ContinuousReadSupport, DataSourceOptions, MicroBatchReadSupport}
@@ -158,7 +159,6 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
     }
 
     val ds = DataSource.lookupDataSource(source, sparkSession.sqlContext.conf).newInstance()
-    val options = new DataSourceOptions(extraOptions.asJava)
     // We need to generate the V1 data source so we can pass it to the V2 relation as a shim.
     // We can't be sure at this point whether we'll actually want to use V2, since we don't know the
     // writer or whether the query is continuous.
@@ -173,12 +173,16 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
     }
     ds match {
       case s: MicroBatchReadSupport =>
+        val sessionOptions = DataSourceV2Utils.extractSessionConfigs(
+          ds = s, conf = sparkSession.sessionState.conf)
+        val options = sessionOptions ++ extraOptions
+        val dataSourceOptions = new DataSourceOptions(options.asJava)
         var tempReader: MicroBatchReader = null
         val schema = try {
           tempReader = s.createMicroBatchReader(
             Optional.ofNullable(userSpecifiedSchema.orNull),
             Utils.createTempDir(namePrefix = s"temporaryReader").getCanonicalPath,
-            options)
+            dataSourceOptions)
           tempReader.readSchema()
         } finally {
           // Stop tempReader to avoid side-effect thing
@@ -190,17 +194,21 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
         Dataset.ofRows(
           sparkSession,
           StreamingRelationV2(
-            s, source, extraOptions.toMap,
+            s, source, options,
             schema.toAttributes, v1Relation)(sparkSession))
       case s: ContinuousReadSupport =>
+        val sessionOptions = DataSourceV2Utils.extractSessionConfigs(
+          ds = s, conf = sparkSession.sessionState.conf)
+        val options = sessionOptions ++ extraOptions
+        val dataSourceOptions = new DataSourceOptions(options.asJava)
         val tempReader = s.createContinuousReader(
           Optional.ofNullable(userSpecifiedSchema.orNull),
           Utils.createTempDir(namePrefix = s"temporaryReader").getCanonicalPath,
-          options)
+          dataSourceOptions)
         Dataset.ofRows(
           sparkSession,
           StreamingRelationV2(
-            s, source, extraOptions.toMap,
+            s, source, options,
             tempReader.readSchema().toAttributes, v1Relation)(sparkSession))
       case _ =>
         // Code path for data source v1.
@@ -268,6 +276,10 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
    * `java.text.SimpleDateFormat`. This applies to timestamp type.</li>
    * <li>`multiLine` (default `false`): parse one record, which may span multiple lines,
    * per file</li>
+   * <li>`lineSep` (default covers all `\r`, `\r\n` and `\n`): defines the line separator
+   * that should be used for parsing.</li>
+   * <li>`dropFieldIfAllNull` (default `false`): whether to ignore column of all null values or
+   * empty array/struct during schema inference.</li>
    * </ul>
    *
    * @since 2.0.0
@@ -309,6 +321,7 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
    * whitespaces from values being read should be skipped.</li>
    * <li>`nullValue` (default empty string): sets the string representation of a null value. Since
    * 2.0.1, this applies to all supported types including the string type.</li>
+   * <li>`emptyValue` (default empty string): sets the string representation of an empty value.</li>
    * <li>`nanValue` (default `NaN`): sets the string representation of a non-number" value.</li>
    * <li>`positiveInf` (default `Inf`): sets the string representation of a positive infinity
    * value.</li>
@@ -387,7 +400,7 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
    * Loads text files and returns a `DataFrame` whose schema starts with a string column named
    * "value", and followed by partitioned columns if there are any.
    *
-   * Each line in the text files is a new row in the resulting DataFrame. For example:
+   * By default, each line in the text files is a new row in the resulting DataFrame. For example:
    * {{{
    *   // Scala:
    *   spark.readStream.text("/path/to/directory/")
@@ -400,6 +413,10 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
    * <ul>
    * <li>`maxFilesPerTrigger` (default: no max limit): sets the maximum number of new files to be
    * considered in every trigger.</li>
+   * <li>`wholetext` (default `false`): If true, read a file as a single row and not split by "\n".
+   * </li>
+   * <li>`lineSep` (default covers all `\r`, `\r\n` and `\n`): defines the line separator
+   * that should be used for parsing.</li>
    * </ul>
    *
    * @since 2.0.0
@@ -413,7 +430,7 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
    * If the directory structure of the text files contains partitioning information, those are
    * ignored in the resulting Dataset. To include partitioning information as columns, use `text`.
    *
-   * Each line in the text file is a new element in the resulting Dataset. For example:
+   * By default, each line in the text file is a new element in the resulting Dataset. For example:
    * {{{
    *   // Scala:
    *   spark.readStream.textFile("/path/to/spark/README.md")
@@ -426,6 +443,10 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
    * <ul>
    * <li>`maxFilesPerTrigger` (default: no max limit): sets the maximum number of new files to be
    * considered in every trigger.</li>
+   * <li>`wholetext` (default `false`): If true, read a file as a single row and not split by "\n".
+   * </li>
+   * <li>`lineSep` (default covers all `\r`, `\r\n` and `\n`): defines the line separator
+   * that should be used for parsing.</li>
    * </ul>
    *
    * @param path input path

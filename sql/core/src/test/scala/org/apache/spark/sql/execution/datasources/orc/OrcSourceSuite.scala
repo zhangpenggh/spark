@@ -18,9 +18,15 @@
 package org.apache.spark.sql.execution.datasources.orc
 
 import java.io.File
+import java.sql.Timestamp
 import java.util.Locale
 
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.Path
 import org.apache.orc.OrcConf.COMPRESS
+import org.apache.orc.OrcFile
+import org.apache.orc.OrcProto.Stream.Kind
+import org.apache.orc.impl.RecordReaderImpl
 import org.scalatest.BeforeAndAfterAll
 
 import org.apache.spark.sql.Row
@@ -47,6 +53,66 @@ abstract class OrcSuite extends OrcTest with BeforeAndAfterAll {
       .map(i => OrcData(i, s"part-$i"))
       .toDF()
       .createOrReplaceTempView("orc_temp_table")
+  }
+
+  protected def testBloomFilterCreation(bloomFilterKind: Kind) {
+    val tableName = "bloomFilter"
+
+    withTempDir { dir =>
+      withTable(tableName) {
+        val sqlStatement = orcImp match {
+          case "native" =>
+            s"""
+               |CREATE TABLE $tableName (a INT, b STRING)
+               |USING ORC
+               |OPTIONS (
+               |  path '${dir.toURI}',
+               |  orc.bloom.filter.columns '*',
+               |  orc.bloom.filter.fpp 0.1
+               |)
+            """.stripMargin
+          case "hive" =>
+            s"""
+               |CREATE TABLE $tableName (a INT, b STRING)
+               |STORED AS ORC
+               |LOCATION '${dir.toURI}'
+               |TBLPROPERTIES (
+               |  orc.bloom.filter.columns='*',
+               |  orc.bloom.filter.fpp=0.1
+               |)
+            """.stripMargin
+          case impl =>
+            throw new UnsupportedOperationException(s"Unknown ORC implementation: $impl")
+        }
+
+        sql(sqlStatement)
+        sql(s"INSERT INTO $tableName VALUES (1, 'str')")
+
+        val partFiles = dir.listFiles()
+          .filter(f => f.isFile && !f.getName.startsWith(".") && !f.getName.startsWith("_"))
+        assert(partFiles.length === 1)
+
+        val orcFilePath = new Path(partFiles.head.getAbsolutePath)
+        val readerOptions = OrcFile.readerOptions(new Configuration())
+        val reader = OrcFile.createReader(orcFilePath, readerOptions)
+        var recordReader: RecordReaderImpl = null
+        try {
+          recordReader = reader.rows.asInstanceOf[RecordReaderImpl]
+
+          // BloomFilter array is created for all types; `struct`, int (`a`), string (`b`)
+          val sargColumns = Array(true, true, true)
+          val orcIndex = recordReader.readRowIndex(0, null, sargColumns)
+
+          // Check the types and counts of bloom filters
+          assert(orcIndex.getBloomFilterKinds.forall(_ === bloomFilterKind))
+          assert(orcIndex.getBloomFilterIndex.forall(_.getBloomFilterCount > 0))
+        } finally {
+          if (recordReader != null) {
+            recordReader.close()
+          }
+        }
+      }
+    }
   }
 
   test("create temporary orc table") {
@@ -169,6 +235,14 @@ abstract class OrcSuite extends OrcTest with BeforeAndAfterAll {
       }
     }
   }
+
+  test("SPARK-24322 Fix incorrect workaround for bug in java.sql.Timestamp") {
+    withTempPath { path =>
+      val ts = Timestamp.valueOf("1900-05-05 12:34:56.000789")
+      Seq(ts).toDF.write.orc(path.getCanonicalPath)
+      checkAnswer(spark.read.orc(path.getCanonicalPath), Row(ts))
+    }
+  }
 }
 
 class OrcSourceSuite extends OrcSuite with SharedSQLContext {
@@ -205,5 +279,9 @@ class OrcSourceSuite extends OrcSuite with SharedSQLContext {
          |  PATH '${new File(orcTableAsDir.getAbsolutePath).toURI}'
          |)
        """.stripMargin)
+  }
+
+  test("Check BloomFilter creation") {
+    testBloomFilterCreation(Kind.BLOOM_FILTER_UTF8) // After ORC-101
   }
 }

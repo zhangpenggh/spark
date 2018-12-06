@@ -33,7 +33,6 @@ import org.apache.spark.storage.RDDInfo
 import org.apache.spark.ui.SparkUI
 import org.apache.spark.util.AccumulatorContext
 import org.apache.spark.util.collection.OpenHashSet
-import org.apache.spark.util.kvstore.KVStore
 
 /**
  * A mutable representation of a live entity in Spark (jobs, stages, tasks, et al). Every live
@@ -374,6 +373,8 @@ private class LiveStage extends LiveEntity {
 
   val executorSummaries = new HashMap[String, LiveExecutorStageSummary]()
 
+  val activeTasksPerExecutor = new HashMap[String, Int]().withDefaultValue(0)
+
   var blackListedExecutors = new HashSet[String]()
 
   // Used for cleanup of tasks after they reach the configured limit. Not written to the store.
@@ -538,6 +539,10 @@ private class LiveRDD(val info: RDDInfo) extends LiveEntity {
     distributions.get(exec.executorId)
   }
 
+  def getPartitions(): scala.collection.Map[String, LiveRDDPartition] = partitions
+
+  def getDistributions(): scala.collection.Map[String, LiveRDDDistribution] = distributions
+
   override protected def doUpdate(): Any = {
     val dists = if (distributions.nonEmpty) {
       Some(distributions.values.map(_.toApi()).toSeq)
@@ -581,8 +586,7 @@ private object LiveEntityHelpers {
       .filter { acc =>
         // We don't need to store internal or SQL accumulables as their values will be shown in
         // other places, so drop them to reduce the memory usage.
-        !acc.internal && (!acc.metadata.isDefined ||
-          acc.metadata.get != Some(AccumulatorContext.SQL_ACCUM_IDENTIFIER))
+        !acc.internal && acc.metadata != Some(AccumulatorContext.SQL_ACCUM_IDENTIFIER)
       }
       .map { acc =>
         new v1.AccumulableInfo(

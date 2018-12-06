@@ -503,7 +503,6 @@ setMethod("createOrReplaceTempView",
 #' @param x A SparkDataFrame
 #' @param tableName A character vector containing the name of the table
 #'
-#' @family SparkDataFrame functions
 #' @seealso \link{createOrReplaceTempView}
 #' @rdname registerTempTable-deprecated
 #' @name registerTempTable
@@ -588,7 +587,7 @@ setMethod("cache",
 #' \url{http://spark.apache.org/docs/latest/rdd-programming-guide.html#rdd-persistence}.
 #'
 #' @param x the SparkDataFrame to persist.
-#' @param newLevel storage level chosen for the persistance. See available options in
+#' @param newLevel storage level chosen for the persistence. See available options in
 #'        the description.
 #'
 #' @family SparkDataFrame functions
@@ -687,7 +686,7 @@ setMethod("storageLevel",
 #' @rdname coalesce
 #' @name coalesce
 #' @aliases coalesce,SparkDataFrame-method
-#' @seealso \link{repartition}
+#' @seealso \link{repartition}, \link{repartitionByRange}
 #' @examples
 #'\dontrun{
 #' sparkR.session()
@@ -723,7 +722,7 @@ setMethod("coalesce",
 #' @rdname repartition
 #' @name repartition
 #' @aliases repartition,SparkDataFrame-method
-#' @seealso \link{coalesce}
+#' @seealso \link{coalesce}, \link{repartitionByRange}
 #' @examples
 #'\dontrun{
 #' sparkR.session()
@@ -755,6 +754,67 @@ setMethod("repartition",
               sdf <- callJMethod(x@sdf, "repartition", jcol)
             } else {
               stop("Please, specify the number of partitions and/or a column(s)")
+            }
+            dataFrame(sdf)
+          })
+
+
+#' Repartition by range
+#'
+#' The following options for repartition by range are possible:
+#' \itemize{
+#'  \item{1.} {Return a new SparkDataFrame range partitioned by
+#'                      the given columns into \code{numPartitions}.}
+#'  \item{2.} {Return a new SparkDataFrame range partitioned by the given column(s),
+#'                      using \code{spark.sql.shuffle.partitions} as number of partitions.}
+#'}
+#'
+#' @param x a SparkDataFrame.
+#' @param numPartitions the number of partitions to use.
+#' @param col the column by which the range partitioning will be performed.
+#' @param ... additional column(s) to be used in the range partitioning.
+#'
+#' @family SparkDataFrame functions
+#' @rdname repartitionByRange
+#' @name repartitionByRange
+#' @aliases repartitionByRange,SparkDataFrame-method
+#' @seealso \link{repartition}, \link{coalesce}
+#' @examples
+#'\dontrun{
+#' sparkR.session()
+#' path <- "path/to/file.json"
+#' df <- read.json(path)
+#' newDF <- repartitionByRange(df, col = df$col1, df$col2)
+#' newDF <- repartitionByRange(df, 3L, col = df$col1, df$col2)
+#'}
+#' @note repartitionByRange since 2.4.0
+setMethod("repartitionByRange",
+          signature(x = "SparkDataFrame"),
+          function(x, numPartitions = NULL, col = NULL, ...) {
+            if (!is.null(numPartitions) && !is.null(col)) {
+              # number of partitions and columns both are specified
+              if (is.numeric(numPartitions) && class(col) == "Column") {
+                cols <- list(col, ...)
+                jcol <- lapply(cols, function(c) { c@jc })
+                sdf <- callJMethod(x@sdf, "repartitionByRange", numToInt(numPartitions), jcol)
+              } else {
+                stop(paste("numPartitions and col must be numeric and Column; however, got",
+                           class(numPartitions), "and", class(col)))
+              }
+            } else if (!is.null(col))  {
+              # only columns are specified
+              if (class(col) == "Column") {
+                cols <- list(col, ...)
+                jcol <- lapply(cols, function(c) { c@jc })
+                sdf <- callJMethod(x@sdf, "repartitionByRange", jcol)
+              } else {
+                stop(paste("col must be Column; however, got", class(col)))
+              }
+            } else if (!is.null(numPartitions)) {
+              # only numPartitions is specified
+              stop("At least one partition-by column must be specified.")
+            } else {
+              stop("Please, specify a column(s) or the number of partitions with a column(s)")
             }
             dataFrame(sdf)
           })
@@ -2236,6 +2296,8 @@ setMethod("rename",
 
 setClassUnion("characterOrColumn", c("character", "Column"))
 
+setClassUnion("numericOrColumn", c("numeric", "Column"))
+
 #' Arrange Rows by Variables
 #'
 #' Sort a SparkDataFrame by the specified column(s).
@@ -2785,6 +2847,35 @@ setMethod("intersect",
             dataFrame(intersected)
           })
 
+#' intersectAll
+#'
+#' Return a new SparkDataFrame containing rows in both this SparkDataFrame
+#' and another SparkDataFrame while preserving the duplicates.
+#' This is equivalent to \code{INTERSECT ALL} in SQL. Also as standard in
+#' SQL, this function resolves columns by position (not by name).
+#'
+#' @param x a SparkDataFrame.
+#' @param y a SparkDataFrame.
+#' @return A SparkDataFrame containing the result of the intersect all operation.
+#' @family SparkDataFrame functions
+#' @aliases intersectAll,SparkDataFrame,SparkDataFrame-method
+#' @rdname intersectAll
+#' @name intersectAll
+#' @examples
+#'\dontrun{
+#' sparkR.session()
+#' df1 <- read.json(path)
+#' df2 <- read.json(path2)
+#' intersectAllDF <- intersectAll(df1, df2)
+#' }
+#' @note intersectAll since 2.4.0
+setMethod("intersectAll",
+          signature(x = "SparkDataFrame", y = "SparkDataFrame"),
+          function(x, y) {
+            intersected <- callJMethod(x@sdf, "intersectAll", y@sdf)
+            dataFrame(intersected)
+          })
+
 #' except
 #'
 #' Return a new SparkDataFrame containing rows in this SparkDataFrame
@@ -2804,12 +2895,40 @@ setMethod("intersect",
 #' df2 <- read.json(path2)
 #' exceptDF <- except(df, df2)
 #' }
-#' @rdname except
 #' @note except since 1.4.0
 setMethod("except",
           signature(x = "SparkDataFrame", y = "SparkDataFrame"),
           function(x, y) {
             excepted <- callJMethod(x@sdf, "except", y@sdf)
+            dataFrame(excepted)
+          })
+
+#' exceptAll
+#'
+#' Return a new SparkDataFrame containing rows in this SparkDataFrame
+#' but not in another SparkDataFrame while preserving the duplicates.
+#' This is equivalent to \code{EXCEPT ALL} in SQL. Also as standard in
+#' SQL, this function resolves columns by position (not by name).
+#'
+#' @param x a SparkDataFrame.
+#' @param y a SparkDataFrame.
+#' @return A SparkDataFrame containing the result of the except all operation.
+#' @family SparkDataFrame functions
+#' @aliases exceptAll,SparkDataFrame,SparkDataFrame-method
+#' @rdname exceptAll
+#' @name exceptAll
+#' @examples
+#'\dontrun{
+#' sparkR.session()
+#' df1 <- read.json(path)
+#' df2 <- read.json(path2)
+#' exceptAllDF <- exceptAll(df1, df2)
+#' }
+#' @note exceptAll since 2.4.0
+setMethod("exceptAll",
+          signature(x = "SparkDataFrame", y = "SparkDataFrame"),
+          function(x, y) {
+            excepted <- callJMethod(x@sdf, "exceptAll", y@sdf)
             dataFrame(excepted)
           })
 
