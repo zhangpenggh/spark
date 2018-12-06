@@ -37,11 +37,6 @@ function makeIdNumeric(id) {
   return resl;
 }
 
-function formatDate(date) {
-  if (date <= 0) return "-";
-  else return date.split(".")[0].replace("T", " ");
-}
-
 function getParameterByName(name, searchString) {
   var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
   results = regex.exec(searchString);
@@ -113,7 +108,12 @@ $(document).ready(function() {
     requestedIncomplete = getParameterByName("showIncomplete", searchString);
     requestedIncomplete = (requestedIncomplete == "true" ? true : false);
 
-    $.getJSON("api/v1/applications?limit=" + appLimit, function(response,status,jqXHR) {
+    appParams = {
+      limit: appLimit,
+      status: (requestedIncomplete ? "running" : "completed")
+    };
+
+    $.getJSON(uiRoot + "/api/v1/applications", appParams, function(response,status,jqXHR) {
       var array = [];
       var hasMultipleAttempts = false;
       for (i in response) {
@@ -129,9 +129,15 @@ $(document).ready(function() {
         var num = app["attempts"].length;
         for (j in app["attempts"]) {
           var attempt = app["attempts"][j];
+<<<<<<< HEAD
           attempt["startTime"] = formatDate(attempt["startTime"]);
           attempt["endTime"] = formatDate(attempt["endTime"]);
           attempt["lastUpdated"] = formatDate(attempt["lastUpdated"]);
+=======
+          attempt["startTime"] = formatTimeMillis(attempt["startTimeEpoch"]);
+          attempt["endTime"] = formatTimeMillis(attempt["endTimeEpoch"]);
+          attempt["lastUpdated"] = formatTimeMillis(attempt["lastUpdatedEpoch"]);
+>>>>>>> master
           attempt["log"] = uiRoot + "/api/v1/applications/" + id + "/" +
             (attempt.hasOwnProperty("attemptId") ? attempt["attemptId"] + "/" : "") + "logs";
           attempt["durationMillisec"] = attempt["duration"];
@@ -148,10 +154,17 @@ $(document).ready(function() {
         "uiroot": uiRoot,
         "applications": array,
         "hasMultipleAttempts": hasMultipleAttempts,
+<<<<<<< HEAD
         "showCompletedColumn": !requestedIncomplete,
       }
 
       $.get("static/historypage-template.html", function(template) {
+=======
+        "showCompletedColumns": !requestedIncomplete,
+      }
+
+      $.get(uiRoot + "/static/historypage-template.html", function(template) {
+>>>>>>> master
         var sibling = historySummary.prev();
         historySummary.detach();
         var apps = $(Mustache.render($(template).filter("#history-summary-template").html(),data));
@@ -181,6 +194,7 @@ $(document).ready(function() {
           ];
         } else {
           conf.columns = removeColumnByName(conf.columns, attemptIdColumnName);
+<<<<<<< HEAD
         }
 
         var defaultSortColumn = completedColumnName;
@@ -188,6 +202,16 @@ $(document).ready(function() {
           defaultSortColumn = startedColumnName;
           conf.columns = removeColumnByName(conf.columns, completedColumnName);
         }
+=======
+        }
+
+        var defaultSortColumn = completedColumnName;
+        if (requestedIncomplete) {
+          defaultSortColumn = startedColumnName;
+          conf.columns = removeColumnByName(conf.columns, completedColumnName);
+          conf.columns = removeColumnByName(conf.columns, durationColumnName);
+        }
+>>>>>>> master
         conf.order = [[ getColumnIndex(conf.columns, defaultSortColumn), "desc" ]];
         conf.columnDefs = [
           {"searchable": false, "targets": [getColumnIndex(conf.columns, durationColumnName)]}

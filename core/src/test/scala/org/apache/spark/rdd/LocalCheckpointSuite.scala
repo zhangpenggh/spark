@@ -18,6 +18,10 @@
 package org.apache.spark.rdd
 
 import scala.concurrent.duration._
+<<<<<<< HEAD
+=======
+import scala.language.postfixOps
+>>>>>>> master
 
 import org.scalatest.concurrent.Eventually.{eventually, interval, timeout}
 

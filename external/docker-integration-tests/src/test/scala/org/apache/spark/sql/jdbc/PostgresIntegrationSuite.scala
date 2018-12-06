@@ -56,6 +56,17 @@ class PostgresIntegrationSuite extends DockerJDBCIntegrationSuite {
       + "null, null, null, null, null, null, null)"
     ).executeUpdate()
 
+<<<<<<< HEAD
+=======
+    conn.prepareStatement("CREATE TABLE ts_with_timezone " +
+      "(id integer, tstz TIMESTAMP WITH TIME ZONE, ttz TIME WITH TIME ZONE)")
+      .executeUpdate()
+    conn.prepareStatement("INSERT INTO ts_with_timezone VALUES " +
+      "(1, TIMESTAMP WITH TIME ZONE '2016-08-12 10:22:31.949271-07', " +
+      "TIME WITH TIME ZONE '17:22:31.949271+00')")
+      .executeUpdate()
+
+>>>>>>> master
     conn.prepareStatement("CREATE TABLE st_with_array (c0 uuid, c1 inet, c2 cidr," +
       "c3 json, c4 jsonb, c5 uuid[], c6 inet[], c7 cidr[], c8 json[], c9 jsonb[])")
       .executeUpdate()
@@ -67,7 +78,12 @@ class PostgresIntegrationSuite extends DockerJDBCIntegrationSuite {
       "'172.16.0.42']::inet[], ARRAY['192.168.0.0/24', '10.1.0.0/16']::cidr[], " +
       """ARRAY['{"a": "foo", "b": "bar"}', '{"a": 1, "b": 2}']::json[], """ +
       """ARRAY['{"a": 1, "b": 2, "c": 3}']::jsonb[])"""
+<<<<<<< HEAD
     ).executeUpdate()
+=======
+    )
+      .executeUpdate()
+>>>>>>> master
   }
 
   test("Type mapping for various types") {
@@ -140,6 +156,20 @@ class PostgresIntegrationSuite extends DockerJDBCIntegrationSuite {
     assert(schema(1).dataType == ShortType)
   }
 
+<<<<<<< HEAD
+=======
+  test("SPARK-20557: column type TIMESTAMP with TIME ZONE and TIME with TIME ZONE " +
+    "should be recognized") {
+    // When using JDBC to read the columns of TIMESTAMP with TIME ZONE and TIME with TIME ZONE
+    // the actual types are java.sql.Types.TIMESTAMP and java.sql.Types.TIME
+    val dfRead = sqlContext.read.jdbc(jdbcUrl, "ts_with_timezone", new Properties)
+    val rows = dfRead.collect()
+    val types = rows(0).toSeq.map(x => x.getClass.toString)
+    assert(types(1).equals("class java.sql.Timestamp"))
+    assert(types(2).equals("class java.sql.Timestamp"))
+  }
+
+>>>>>>> master
   test("SPARK-22291: Conversion error when transforming array types of " +
     "uuid, inet and cidr to StingType in PostgreSQL") {
     val df = sqlContext.read.jdbc(jdbcUrl, "st_with_array", new Properties)

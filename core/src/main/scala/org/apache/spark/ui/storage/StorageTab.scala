@@ -17,14 +17,11 @@
 
 package org.apache.spark.ui.storage
 
-import scala.collection.mutable
-
-import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.scheduler._
-import org.apache.spark.storage._
+import org.apache.spark.status.AppStatusStore
 import org.apache.spark.ui._
 
 /** Web UI showing storage status of all RDD's in the given SparkContext. */
+<<<<<<< HEAD
 private[ui] class StorageTab(parent: SparkUI) extends SparkUITab(parent, "storage") {
   val listener = parent.storageListener
 
@@ -74,14 +71,11 @@ class StorageListener(storageStatusListener: StorageStatusListener) extends Bloc
   override def onUnpersistRDD(unpersistRDD: SparkListenerUnpersistRDD): Unit = synchronized {
     _rddInfoMap.remove(unpersistRDD.rddId)
   }
+=======
+private[ui] class StorageTab(parent: SparkUI, store: AppStatusStore)
+  extends SparkUITab(parent, "storage") {
+>>>>>>> master
 
-  override def onBlockUpdated(blockUpdated: SparkListenerBlockUpdated): Unit = {
-    super.onBlockUpdated(blockUpdated)
-    val blockId = blockUpdated.blockUpdatedInfo.blockId
-    val storageLevel = blockUpdated.blockUpdatedInfo.storageLevel
-    val memSize = blockUpdated.blockUpdatedInfo.memSize
-    val diskSize = blockUpdated.blockUpdatedInfo.diskSize
-    val blockStatus = BlockStatus(storageLevel, memSize, diskSize)
-    updateRDDInfo(Seq((blockId, blockStatus)))
-  }
+  attachPage(new StoragePage(this, store))
+  attachPage(new RDDPage(this, store))
 }

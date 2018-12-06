@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.test
 
+<<<<<<< HEAD
 import scala.concurrent.duration._
 
 import org.scalatest.BeforeAndAfterEach
@@ -33,25 +34,21 @@ trait SharedSQLContext extends SQLTestUtils with BeforeAndAfterEach with Eventua
   protected def sparkConf = {
     new SparkConf().set("spark.hadoop.fs.file.impl", classOf[DebugFilesystem].getName)
   }
+=======
+trait SharedSQLContext extends SQLTestUtils with SharedSparkSession {
+>>>>>>> master
 
   /**
-   * The [[TestSparkSession]] to use for all tests in this suite.
+   * Suites extending [[SharedSQLContext]] are sharing resources (eg. SparkSession) in their tests.
+   * That trait initializes the spark session in its [[beforeAll()]] implementation before the
+   * automatic thread snapshot is performed, so the audit code could fail to report threads leaked
+   * by that shared session.
    *
-   * By default, the underlying [[org.apache.spark.SparkContext]] will be run in local
-   * mode with the default test configurations.
+   * The behavior is overridden here to take the snapshot before the spark session is initialized.
    */
-  private var _spark: TestSparkSession = null
+  override protected val enableAutoThreadAudit = false
 
-  /**
-   * The [[TestSparkSession]] to use for all tests in this suite.
-   */
-  protected implicit def spark: SparkSession = _spark
-
-  /**
-   * The [[TestSQLContext]] to use for all tests in this suite.
-   */
-  protected implicit def sqlContext: SQLContext = _spark.sqlContext
-
+<<<<<<< HEAD
   protected def createSparkSession: TestSparkSession = {
     new TestSparkSession(sparkConf)
   }
@@ -59,20 +56,16 @@ trait SharedSQLContext extends SQLTestUtils with BeforeAndAfterEach with Eventua
   /**
    * Initialize the [[TestSparkSession]].
    */
+=======
+>>>>>>> master
   protected override def beforeAll(): Unit = {
-    SparkSession.sqlListener.set(null)
-    if (_spark == null) {
-      _spark = createSparkSession
-    }
-    // Ensure we have initialized the context before calling parent code
+    doThreadPreAudit()
     super.beforeAll()
   }
 
-  /**
-   * Stop the underlying [[org.apache.spark.SparkContext]], if any.
-   */
   protected override def afterAll(): Unit = {
     super.afterAll()
+<<<<<<< HEAD
     if (_spark != null) {
       _spark.sessionState.catalog.reset()
       _spark.stop()
@@ -92,5 +85,8 @@ trait SharedSQLContext extends SQLTestUtils with BeforeAndAfterEach with Eventua
     eventually(timeout(10.seconds)) {
       DebugFilesystem.assertNoOpenStreams()
     }
+=======
+    doThreadPostAudit()
+>>>>>>> master
   }
 }

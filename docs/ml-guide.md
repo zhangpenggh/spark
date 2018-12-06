@@ -61,11 +61,18 @@ To configure `netlib-java` / Breeze to use system optimised binaries, include
 project and read the [netlib-java](https://github.com/fommil/netlib-java) documentation for your
 platform's additional installation instructions.
 
+The most popular native BLAS such as [Intel MKL](https://software.intel.com/en-us/mkl), [OpenBLAS](http://www.openblas.net), can use multiple threads in a single operation, which can conflict with Spark's execution model.
+
+Configuring these BLAS implementations to use a single thread for operations may actually improve performance (see [SPARK-21305](https://issues.apache.org/jira/browse/SPARK-21305)). It is usually optimal to match this to the number of cores each Spark task is configured to use, which is 1 by default and typically left at 1.
+
+Please refer to resources like the following to understand how to configure the number of threads these BLAS implementations use: [Intel MKL](https://software.intel.com/en-us/articles/recommended-settings-for-calling-intel-mkl-routines-from-multi-threaded-applications) and [OpenBLAS](https://github.com/xianyi/OpenBLAS/wiki/faq#multi-threaded).
+
 To use MLlib in Python, you will need [NumPy](http://www.numpy.org) version 1.4 or newer.
 
 [^1]: To learn more about the benefits and background of system optimised natives, you may wish to
     watch Sam Halliday's ScalaX talk on [High Performance Linear Algebra in Scala](http://fommil.github.io/scalax14/#/).
 
+<<<<<<< HEAD
 # Highlights in 2.2
 
 The list below highlights some of the new features and enhancements added to MLlib in the `2.2`
@@ -92,6 +99,33 @@ release of Spark:
  ([SPARK-14709](https://issues.apache.org/jira/browse/SPARK-14709))
 * Logistic regression now supports constraints on the coefficients during training
  ([SPARK-20047](https://issues.apache.org/jira/browse/SPARK-20047))
+=======
+# Highlights in 2.3
+
+The list below highlights some of the new features and enhancements added to MLlib in the `2.3`
+release of Spark:
+
+* Built-in support for reading images into a `DataFrame` was added
+([SPARK-21866](https://issues.apache.org/jira/browse/SPARK-21866)).
+* [`OneHotEncoderEstimator`](ml-features.html#onehotencoderestimator) was added, and should be
+used instead of the existing `OneHotEncoder` transformer. The new estimator supports
+transforming multiple columns.
+* Multiple column support was also added to `QuantileDiscretizer` and `Bucketizer`
+([SPARK-22397](https://issues.apache.org/jira/browse/SPARK-22397) and
+[SPARK-20542](https://issues.apache.org/jira/browse/SPARK-20542))
+* A new [`FeatureHasher`](ml-features.html#featurehasher) transformer was added
+ ([SPARK-13969](https://issues.apache.org/jira/browse/SPARK-13969)).
+* Added support for evaluating multiple models in parallel when performing cross-validation using
+[`TrainValidationSplit` or `CrossValidator`](ml-tuning.html)
+([SPARK-19357](https://issues.apache.org/jira/browse/SPARK-19357)).
+* Improved support for custom pipeline components in Python (see
+[SPARK-21633](https://issues.apache.org/jira/browse/SPARK-21633) and 
+[SPARK-21542](https://issues.apache.org/jira/browse/SPARK-21542)).
+* `DataFrame` functions for descriptive summary statistics over vector columns
+([SPARK-19634](https://issues.apache.org/jira/browse/SPARK-19634)).
+* Robust linear regression with Huber loss
+([SPARK-3181](https://issues.apache.org/jira/browse/SPARK-3181)).
+>>>>>>> master
 
 # Migration guide
 
@@ -99,16 +133,31 @@ MLlib is under active development.
 The APIs marked `Experimental`/`DeveloperApi` may change in future releases,
 and the migration guide below will explain all changes between releases.
 
+<<<<<<< HEAD
 ## From 2.1 to 2.2
 
 ### Breaking changes
 
 There are no breaking changes.
+=======
+## From 2.2 to 2.3
+
+### Breaking changes
+
+* The class and trait hierarchy for logistic regression model summaries was changed to be cleaner
+and better accommodate the addition of the multi-class summary. This is a breaking change for user
+code that casts a `LogisticRegressionTrainingSummary` to a
+`BinaryLogisticRegressionTrainingSummary`. Users should instead use the `model.binarySummary`
+method. See [SPARK-17139](https://issues.apache.org/jira/browse/SPARK-17139) for more detail 
+(_note_ this is an `Experimental` API). This _does not_ affect the Python `summary` method, which
+will still work correctly for both multinomial and binary cases.
+>>>>>>> master
 
 ### Deprecations and changes of behavior
 
 **Deprecations**
 
+<<<<<<< HEAD
 There are no deprecations.
 
 **Changes of behavior**
@@ -121,6 +170,30 @@ There are no deprecations.
 * [SPARK-11569](https://issues.apache.org/jira/browse/SPARK-11569):
  `StringIndexer` now handles `NULL` values in the same way as unseen values. Previously an exception
  would always be thrown regardless of the setting of the `handleInvalid` parameter.
+=======
+* `OneHotEncoder` has been deprecated and will be removed in `3.0`. It has been replaced by the
+new [`OneHotEncoderEstimator`](ml-features.html#onehotencoderestimator)
+(see [SPARK-13030](https://issues.apache.org/jira/browse/SPARK-13030)). **Note** that
+`OneHotEncoderEstimator` will be renamed to `OneHotEncoder` in `3.0` (but
+`OneHotEncoderEstimator` will be kept as an alias).
+
+**Changes of behavior**
+
+* [SPARK-21027](https://issues.apache.org/jira/browse/SPARK-21027):
+ The default parallelism used in `OneVsRest` is now set to 1 (i.e. serial). In `2.2` and
+ earlier versions, the level of parallelism was set to the default threadpool size in Scala.
+* [SPARK-22156](https://issues.apache.org/jira/browse/SPARK-22156):
+ The learning rate update for `Word2Vec` was incorrect when `numIterations` was set greater than
+ `1`. This will cause training results to be different between `2.3` and earlier versions.
+* [SPARK-21681](https://issues.apache.org/jira/browse/SPARK-21681):
+ Fixed an edge case bug in multinomial logistic regression that resulted in incorrect coefficients
+ when some features had zero variance.
+* [SPARK-16957](https://issues.apache.org/jira/browse/SPARK-16957):
+ Tree algorithms now use mid-points for split values. This may change results from model training.
+* [SPARK-14657](https://issues.apache.org/jira/browse/SPARK-14657):
+ Fixed an issue where the features generated by `RFormula` without an intercept were inconsistent
+ with the output in R. This may change results from model training in this scenario.
+>>>>>>> master
   
 ## Previous Spark versions
 

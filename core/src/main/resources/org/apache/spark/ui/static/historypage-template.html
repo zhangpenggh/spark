@@ -41,7 +41,11 @@
           Started
         </span>
       </th>
+<<<<<<< HEAD
       {{#showCompletedColumn}}
+=======
+      {{#showCompletedColumns}}
+>>>>>>> master
       <th>
         <span data-toggle="tooltip" data-placement="top" title="The completed time of this application.">
           Completed
@@ -53,6 +57,7 @@
           Duration
         </span>
       </th>
+      {{/showCompletedColumns}}
       <th>
         <span data-toggle="tooltip" data-placement="top" title="The Spark user of this application">
           Spark User
@@ -79,10 +84,17 @@
       <td><a href="{{uiroot}}/history/{{id}}/{{attemptId}}/jobs/">{{attemptId}}</a></td>
       {{/hasMultipleAttempts}}
       <td>{{startTime}}</td>
+<<<<<<< HEAD
       {{#showCompletedColumn}}
       <td>{{endTime}}</td>
       {{/showCompletedColumn}}
       <td><span title="{{durationMillisec}}">{{duration}}</span></td>
+=======
+      {{#showCompletedColumns}}
+      <td>{{endTime}}</td>
+      <td><span title="{{durationMillisec}}">{{duration}}</span></td>
+      {{/showCompletedColumns}}
+>>>>>>> master
       <td>{{sparkUser}}</td>
       <td>{{lastUpdated}}</td>
       <td><a href="{{log}}" class="btn btn-info btn-mini">Download</a></td>

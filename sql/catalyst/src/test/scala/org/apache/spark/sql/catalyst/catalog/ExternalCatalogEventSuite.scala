@@ -36,7 +36,11 @@ class ExternalCatalogEventSuite extends SparkFunSuite {
   private def testWithCatalog(
       name: String)(
       f: (ExternalCatalog, Seq[ExternalCatalogEvent] => Unit) => Unit): Unit = test(name) {
+<<<<<<< HEAD
     val catalog = newCatalog
+=======
+    val catalog = new ExternalCatalogWithListener(newCatalog)
+>>>>>>> master
     val recorder = mutable.Buffer.empty[ExternalCatalogEvent]
     catalog.addListener(new ExternalCatalogEventListener {
       override def onEvent(event: ExternalCatalogEvent): Unit = {
@@ -75,6 +79,14 @@ class ExternalCatalogEventSuite extends SparkFunSuite {
     }
     checkEvents(CreateDatabasePreEvent("db5") :: Nil)
 
+<<<<<<< HEAD
+=======
+    // ALTER
+    val newDbDefinition = dbDefinition.copy(description = "test")
+    catalog.alterDatabase(newDbDefinition)
+    checkEvents(AlterDatabasePreEvent("db5") :: AlterDatabaseEvent("db5") :: Nil)
+
+>>>>>>> master
     // DROP
     intercept[AnalysisException] {
       catalog.dropDatabase("db4", ignoreIfNotExists = false, cascade = false)
@@ -119,6 +131,26 @@ class ExternalCatalogEventSuite extends SparkFunSuite {
     }
     checkEvents(CreateTablePreEvent("db5", "tbl1") :: Nil)
 
+<<<<<<< HEAD
+=======
+    // ALTER
+    val newTableDefinition = tableDefinition.copy(tableType = CatalogTableType.EXTERNAL)
+    catalog.alterTable(newTableDefinition)
+    checkEvents(AlterTablePreEvent("db5", "tbl1", AlterTableKind.TABLE) ::
+      AlterTableEvent("db5", "tbl1", AlterTableKind.TABLE) :: Nil)
+
+    // ALTER schema
+    val newSchema = new StructType().add("id", "long", nullable = false)
+    catalog.alterTableDataSchema("db5", "tbl1", newSchema)
+    checkEvents(AlterTablePreEvent("db5", "tbl1", AlterTableKind.DATASCHEMA) ::
+      AlterTableEvent("db5", "tbl1", AlterTableKind.DATASCHEMA) :: Nil)
+
+    // ALTER stats
+    catalog.alterTableStats("db5", "tbl1", None)
+    checkEvents(AlterTablePreEvent("db5", "tbl1", AlterTableKind.STATS) ::
+      AlterTableEvent("db5", "tbl1", AlterTableKind.STATS) :: Nil)
+
+>>>>>>> master
     // RENAME
     catalog.renameTable("db5", "tbl1", "tbl2")
     checkEvents(
@@ -176,6 +208,18 @@ class ExternalCatalogEventSuite extends SparkFunSuite {
     }
     checkEvents(RenameFunctionPreEvent("db5", "fn7", "fn4") :: Nil)
 
+<<<<<<< HEAD
+=======
+    // ALTER
+    val alteredFunctionDefinition = CatalogFunction(
+      identifier = FunctionIdentifier("fn4", Some("db5")),
+      className = "org.apache.spark.AlterFunction",
+      resources = Seq.empty)
+    catalog.alterFunction("db5", alteredFunctionDefinition)
+    checkEvents(
+      AlterFunctionPreEvent("db5", "fn4") :: AlterFunctionEvent("db5", "fn4") :: Nil)
+
+>>>>>>> master
     // DROP
     intercept[AnalysisException] {
       catalog.dropFunction("db5", "fn7")

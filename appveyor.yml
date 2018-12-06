@@ -48,13 +48,16 @@ install:
   - cmd: R -e "packageVersion('knitr'); packageVersion('rmarkdown'); packageVersion('testthat'); packageVersion('e1071'); packageVersion('survival')"
 
 build_script:
-  - cmd: mvn -DskipTests -Psparkr -Phive -Phive-thriftserver package
+  - cmd: mvn -DskipTests -Psparkr -Phive package
+
+environment:
+  NOT_CRAN: true
 
 environment:
   NOT_CRAN: true
 
 test_script:
-  - cmd: .\bin\spark-submit2.cmd --conf spark.hadoop.fs.defaultFS="file:///" R\pkg\tests\run-all.R
+  - cmd: .\bin\spark-submit2.cmd --driver-java-options "-Dlog4j.configuration=file:///%CD:\=/%/R/log4j.properties" --conf spark.hadoop.fs.defaultFS="file:///" R\pkg\tests\run-all.R
 
 notifications:
   - provider: Email

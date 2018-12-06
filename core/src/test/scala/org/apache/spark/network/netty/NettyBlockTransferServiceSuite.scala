@@ -28,7 +28,7 @@ import org.apache.spark.network.BlockDataManager
 class NettyBlockTransferServiceSuite
   extends SparkFunSuite
   with BeforeAndAfterEach
-  with ShouldMatchers {
+  with Matchers {
 
   private var service0: NettyBlockTransferService = _
   private var service1: NettyBlockTransferService = _
@@ -80,6 +80,10 @@ class NettyBlockTransferServiceSuite
   private def verifyServicePort(expectedPort: Int, actualPort: Int): Unit = {
     actualPort should be >= expectedPort
     // avoid testing equality in case of simultaneous tests
+<<<<<<< HEAD
+=======
+    // if `spark.testing` is true,
+>>>>>>> master
     // the default value for `spark.port.maxRetries` is 100 under test
     actualPort should be <= (expectedPort + 100)
   }

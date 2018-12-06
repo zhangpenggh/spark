@@ -21,6 +21,7 @@ import java.io._
 import java.net.URI
 import java.util.concurrent.atomic.AtomicInteger
 
+import org.apache.hadoop.fs.Path
 import org.json4s.jackson.JsonMethods._
 import org.scalatest.BeforeAndAfter
 
@@ -46,7 +47,7 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
   }
 
   test("Simple replay") {
-    val logFilePath = Utils.getFilePath(testDir, "events.txt")
+    val logFilePath = getFilePath(testDir, "events.txt")
     val fstream = fileSystem.create(logFilePath)
     val writer = new PrintWriter(fstream)
     val applicationStart = SparkListenerApplicationStart("Greatest App (N)ever", None,
@@ -84,6 +85,7 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
     val buffered = new ByteArrayOutputStream
     val codec = new LZ4CompressionCodec(new SparkConf())
     val compstream = codec.compressedOutputStream(buffered)
+<<<<<<< HEAD
     val writer = new PrintWriter(compstream)
 
     val applicationStart = SparkListenerApplicationStart("AppStarts", None,
@@ -102,6 +104,25 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
 
     fstream.write(bytes, 0, buffered.size)
     fstream.close
+=======
+    Utils.tryWithResource(new PrintWriter(compstream)) { writer =>
+
+      val applicationStart = SparkListenerApplicationStart("AppStarts", None,
+        125L, "Mickey", None)
+      val applicationEnd = SparkListenerApplicationEnd(1000L)
+
+      // scalastyle:off println
+      writer.println(compact(render(JsonProtocol.sparkEventToJson(applicationStart))))
+      writer.println(compact(render(JsonProtocol.sparkEventToJson(applicationEnd))))
+      // scalastyle:on println
+    }
+
+    val logFilePath = getFilePath(testDir, "events.lz4.inprogress")
+    val bytes = buffered.toByteArray
+    Utils.tryWithResource(fileSystem.create(logFilePath)) { fstream =>
+      fstream.write(bytes, 0, buffered.size)
+    }
+>>>>>>> master
 
     // Read the compressed .inprogress file and verify only first event was parsed.
     val conf = EventLoggingListenerSuite.getLoggingConf(logFilePath)
@@ -112,6 +133,7 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
 
     // Verify the replay returns the events given the input maybe truncated.
     val logData = EventLoggingListener.openEventLog(logFilePath, fileSystem)
+<<<<<<< HEAD
     val failingStream = new EarlyEOFInputStream(logData, buffered.size - 10)
     replayer.replay(failingStream, logFilePath.toString, true)
 
@@ -124,6 +146,51 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
     intercept[EOFException] {
       replayer.replay(failingStream2, logFilePath.toString, false)
     }
+=======
+    Utils.tryWithResource(new EarlyEOFInputStream(logData, buffered.size - 10)) { failingStream =>
+      replayer.replay(failingStream, logFilePath.toString, true)
+
+      assert(eventMonster.loggedEvents.size === 1)
+      assert(failingStream.didFail)
+    }
+
+    // Verify the replay throws the EOF exception since the input may not be truncated.
+    val logData2 = EventLoggingListener.openEventLog(logFilePath, fileSystem)
+    Utils.tryWithResource(new EarlyEOFInputStream(logData2, buffered.size - 10)) { failingStream2 =>
+      intercept[EOFException] {
+        replayer.replay(failingStream2, logFilePath.toString, false)
+      }
+    }
+  }
+
+  test("Replay incompatible event log") {
+    val logFilePath = getFilePath(testDir, "incompatible.txt")
+    val fstream = fileSystem.create(logFilePath)
+    val writer = new PrintWriter(fstream)
+    val applicationStart = SparkListenerApplicationStart("Incompatible App", None,
+      125L, "UserUsingIncompatibleVersion", None)
+    val applicationEnd = SparkListenerApplicationEnd(1000L)
+    // scalastyle:off println
+    writer.println(compact(render(JsonProtocol.sparkEventToJson(applicationStart))))
+    writer.println("""{"Event":"UnrecognizedEventOnlyForTest","Timestamp":1477593059313}""")
+    writer.println(compact(render(JsonProtocol.sparkEventToJson(applicationEnd))))
+    // scalastyle:on println
+    writer.close()
+
+    val conf = EventLoggingListenerSuite.getLoggingConf(logFilePath)
+    val logData = fileSystem.open(logFilePath)
+    val eventMonster = new EventMonster(conf)
+    try {
+      val replayer = new ReplayListenerBus()
+      replayer.addListener(eventMonster)
+      replayer.replay(logData, logFilePath.toString)
+    } finally {
+      logData.close()
+    }
+    assert(eventMonster.loggedEvents.size === 2)
+    assert(eventMonster.loggedEvents(0) === JsonProtocol.sparkEventToJson(applicationStart))
+    assert(eventMonster.loggedEvents(1) === JsonProtocol.sparkEventToJson(applicationEnd))
+>>>>>>> master
   }
 
   // This assumes the correctness of EventLoggingListener
@@ -151,7 +218,10 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
    * assumption that the event logging behavior is correct (tested in a separate suite).
    */
   private def testApplicationReplay(codecName: Option[String] = None) {
-    val logDirPath = Utils.getFilePath(testDir, "test-replay")
+    val logDir = new File(testDir.getAbsolutePath, "test-replay")
+    // Here, it creates `Path` from the URI instead of the absolute path for the explicit file
+    // scheme so that the string representation of this `Path` has leading file scheme correctly.
+    val logDirPath = new Path(logDir.toURI)
     fileSystem.mkdirs(logDirPath)
 
     val conf = EventLoggingListenerSuite.getLoggingConf(logDirPath, codecName)
@@ -192,6 +262,12 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
     }
   }
 
+  private def getFilePath(dir: File, fileName: String): Path = {
+    assert(dir.isDirectory)
+    val path = new File(dir, fileName).getAbsolutePath
+    new Path(path)
+  }
+
   /**
    * A simple listener that buffers all the events it receives.
    *
@@ -221,12 +297,23 @@ class ReplayListenerSuite extends SparkFunSuite with BeforeAndAfter with LocalSp
     def didFail: Boolean = countDown.get == 0
 
     @throws[IOException]
+<<<<<<< HEAD
     def read: Int = {
+=======
+    override def read(): Int = {
+>>>>>>> master
       if (countDown.get == 0) {
         throw new EOFException("Stream ended prematurely")
       }
       countDown.decrementAndGet()
+<<<<<<< HEAD
       in.read
     }
+=======
+      in.read()
+    }
+
+    override def close(): Unit = in.close()
+>>>>>>> master
   }
 }

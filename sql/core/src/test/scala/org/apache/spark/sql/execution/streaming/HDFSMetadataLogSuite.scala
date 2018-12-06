@@ -17,45 +17,28 @@
 
 package org.apache.spark.sql.execution.streaming
 
-import java.io.{File, FileNotFoundException, IOException}
-import java.net.URI
+import java.io.File
 import java.util.ConcurrentModificationException
 
 import scala.language.implicitConversions
-import scala.util.Random
 
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs._
-import org.scalatest.concurrent.AsyncAssertions._
+import org.scalatest.concurrent.Waiters._
 import org.scalatest.time.SpanSugar._
 
-import org.apache.spark.{SparkConf, SparkFunSuite}
-import org.apache.spark.sql.execution.streaming.FakeFileSystem._
-import org.apache.spark.sql.execution.streaming.HDFSMetadataLog.{FileContextManager, FileManager, FileSystemManager}
+import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.util.UninterruptibleThread
 
 class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
 
+<<<<<<< HEAD
   /** To avoid caching of FS objects */
   override protected def sparkConf =
     super.sparkConf.set(s"spark.hadoop.fs.$scheme.impl.disable.cache", "true")
 
+=======
+>>>>>>> master
   private implicit def toOption[A](a: A): Option[A] = Option(a)
-
-  test("FileManager: FileContextManager") {
-    withTempDir { temp =>
-      val path = new Path(temp.getAbsolutePath)
-      testFileManager(path, new FileContextManager(path, new Configuration))
-    }
-  }
-
-  test("FileManager: FileSystemManager") {
-    withTempDir { temp =>
-      val path = new Path(temp.getAbsolutePath)
-      testFileManager(path, new FileSystemManager(path, new Configuration))
-    }
-  }
 
   test("HDFSMetadataLog: basic") {
     withTempDir { temp =>
@@ -82,26 +65,6 @@ class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
     }
   }
 
-  testQuietly("HDFSMetadataLog: fallback from FileContext to FileSystem") {
-    spark.conf.set(
-      s"fs.$scheme.impl",
-      classOf[FakeFileSystem].getName)
-    withTempDir { temp =>
-      val metadataLog = new HDFSMetadataLog[String](spark, s"$scheme://${temp.toURI.getPath}")
-      assert(metadataLog.add(0, "batch0"))
-      assert(metadataLog.getLatest() === Some(0 -> "batch0"))
-      assert(metadataLog.get(0) === Some("batch0"))
-      assert(metadataLog.get(None, Some(0)) === Array(0 -> "batch0"))
-
-
-      val metadataLog2 = new HDFSMetadataLog[String](spark, s"$scheme://${temp.toURI.getPath}")
-      assert(metadataLog2.get(0) === Some("batch0"))
-      assert(metadataLog2.getLatest() === Some(0 -> "batch0"))
-      assert(metadataLog2.get(None, Some(0)) === Array(0 -> "batch0"))
-
-    }
-  }
-
   test("HDFSMetadataLog: purge") {
     withTempDir { temp =>
       val metadataLog = new HDFSMetadataLog[String](spark, temp.getAbsolutePath)
@@ -121,7 +84,8 @@ class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
 
       // There should be exactly one file, called "2", in the metadata directory.
       // This check also tests for regressions of SPARK-17475
-      val allFiles = new File(metadataLog.metadataPath.toString).listFiles().toSeq
+      val allFiles = new File(metadataLog.metadataPath.toString).listFiles()
+        .filter(!_.getName.startsWith(".")).toSeq
       assert(allFiles.size == 1)
       assert(allFiles(0).getName() == "2")
     }
@@ -172,7 +136,7 @@ class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
     }
   }
 
-  test("HDFSMetadataLog: metadata directory collision") {
+  testQuietly("HDFSMetadataLog: metadata directory collision") {
     withTempDir { temp =>
       val waiter = new Waiter
       val maxBatchId = 100
@@ -206,6 +170,7 @@ class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
     }
   }
 
+<<<<<<< HEAD
   /** Basic test case for [[FileManager]] implementation. */
   private def testFileManager(basePath: Path, fm: FileManager): Unit = {
     // Mkdirs
@@ -260,6 +225,8 @@ class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
     }
   }
 
+=======
+>>>>>>> master
   test("verifyBatchIds") {
     import HDFSMetadataLog.verifyBatchIds
     verifyBatchIds(Seq(1L, 2L, 3L), Some(1L), Some(3L))
@@ -275,6 +242,7 @@ class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
     intercept[IllegalStateException](verifyBatchIds(Seq(2, 3, 4), None, Some(5L)))
     intercept[IllegalStateException](verifyBatchIds(Seq(2, 3, 4), Some(1L), Some(5L)))
     intercept[IllegalStateException](verifyBatchIds(Seq(1, 2, 4, 5), Some(1L), Some(5L)))
+<<<<<<< HEAD
   }
 }
 
@@ -282,9 +250,7 @@ class HDFSMetadataLogSuite extends SparkFunSuite with SharedSQLContext {
 class FakeFileSystem extends RawLocalFileSystem {
   override def getUri: URI = {
     URI.create(s"$scheme:///")
+=======
+>>>>>>> master
   }
-}
-
-object FakeFileSystem {
-  val scheme = s"HDFSMetadataLogSuite${math.abs(Random.nextInt)}"
 }

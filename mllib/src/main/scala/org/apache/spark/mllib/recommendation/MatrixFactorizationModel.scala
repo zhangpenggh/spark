@@ -78,8 +78,13 @@ class MatrixFactorizationModel @Since("0.8.0") (
   /** Predict the rating of one user for one product. */
   @Since("0.8.0")
   def predict(user: Int, product: Int): Double = {
-    val userVector = userFeatures.lookup(user).head
-    val productVector = productFeatures.lookup(product).head
+    val userFeatureSeq = userFeatures.lookup(user)
+    require(userFeatureSeq.nonEmpty, s"userId: $user not found in the model")
+    val productFeatureSeq = productFeatures.lookup(product)
+    require(productFeatureSeq.nonEmpty, s"productId: $product not found in the model")
+
+    val userVector = userFeatureSeq.head
+    val productVector = productFeatureSeq.head
     blas.ddot(rank, userVector, 1, productVector, 1)
   }
 
@@ -164,9 +169,12 @@ class MatrixFactorizationModel @Since("0.8.0") (
    *  recommended the product is.
    */
   @Since("1.1.0")
-  def recommendProducts(user: Int, num: Int): Array[Rating] =
-    MatrixFactorizationModel.recommend(userFeatures.lookup(user).head, productFeatures, num)
+  def recommendProducts(user: Int, num: Int): Array[Rating] = {
+    val userFeatureSeq = userFeatures.lookup(user)
+    require(userFeatureSeq.nonEmpty, s"userId: $user not found in the model")
+    MatrixFactorizationModel.recommend(userFeatureSeq.head, productFeatures, num)
       .map(t => Rating(user, t._1, t._2))
+  }
 
   /**
    * Recommends users to a product. That is, this returns users who are most likely to be
@@ -181,9 +189,12 @@ class MatrixFactorizationModel @Since("0.8.0") (
    *  recommended the user is.
    */
   @Since("1.1.0")
-  def recommendUsers(product: Int, num: Int): Array[Rating] =
-    MatrixFactorizationModel.recommend(productFeatures.lookup(product).head, userFeatures, num)
+  def recommendUsers(product: Int, num: Int): Array[Rating] = {
+    val productFeatureSeq = productFeatures.lookup(product)
+    require(productFeatureSeq.nonEmpty, s"productId: $product not found in the model")
+    MatrixFactorizationModel.recommend(productFeatureSeq.head, userFeatures, num)
       .map(t => Rating(t._1, product, t._2))
+  }
 
   protected override val formatVersion: String = "1.0"
 
@@ -299,11 +310,19 @@ object MatrixFactorizationModel extends Loader[MatrixFactorizationModel] {
           // We use F2jBLAS which is faster than a call to native BLAS for vector dot product
           val score = BLAS.f2jBLAS.ddot(rank, srcFactor, 1, dstFactor, 1)
           pq += dstId -> score
+<<<<<<< HEAD
         }
         pq.foreach { case (dstId, score) =>
           output(i) = (srcId, (dstId, score))
           i += 1
         }
+=======
+        }
+        pq.foreach { case (dstId, score) =>
+          output(i) = (srcId, (dstId, score))
+          i += 1
+        }
+>>>>>>> master
         pq.clear()
       }
       output.toSeq

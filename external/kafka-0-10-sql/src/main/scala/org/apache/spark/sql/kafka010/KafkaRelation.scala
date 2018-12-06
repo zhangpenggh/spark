@@ -17,7 +17,10 @@
 
 package org.apache.spark.sql.kafka010
 
+<<<<<<< HEAD
 import java.{util => ju}
+=======
+>>>>>>> master
 import java.util.UUID
 
 import org.apache.kafka.common.TopicPartition
@@ -48,7 +51,9 @@ private[kafka010] class KafkaRelation(
 
   private val pollTimeoutMs = sourceOptions.getOrElse(
     "kafkaConsumer.pollTimeoutMs",
-    sqlContext.sparkContext.conf.getTimeAsMs("spark.network.timeout", "120s").toString
+    (sqlContext.sparkContext.conf.getTimeAsSeconds(
+      "spark.network.timeout",
+      "120s") * 1000L).toString
   ).toLong
 
   override def schema: StructType = KafkaOffsetReader.kafkaSchema
@@ -115,7 +120,7 @@ private[kafka010] class KafkaRelation(
         DateTimeUtils.fromJavaTimestamp(new java.sql.Timestamp(cr.timestamp)),
         cr.timestampType.id)
     }
-    sqlContext.internalCreateDataFrame(rdd, schema).rdd
+    sqlContext.internalCreateDataFrame(rdd.setName("kafka"), schema).rdd
   }
 
   private def getPartitionOffsets(

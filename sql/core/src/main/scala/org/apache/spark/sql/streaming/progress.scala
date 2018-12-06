@@ -37,7 +37,10 @@ import org.apache.spark.annotation.InterfaceStability
 @InterfaceStability.Evolving
 class StateOperatorProgress private[sql](
     val numRowsTotal: Long,
-    val numRowsUpdated: Long) extends Serializable {
+    val numRowsUpdated: Long,
+    val memoryUsedBytes: Long,
+    val customMetrics: ju.Map[String, JLong] = new ju.HashMap()
+  ) extends Serializable {
 
   /** The compact JSON representation of this progress. */
   def json: String = compact(render(jsonValue))
@@ -45,9 +48,21 @@ class StateOperatorProgress private[sql](
   /** The pretty (i.e. indented) JSON representation of this progress. */
   def prettyJson: String = pretty(render(jsonValue))
 
+  private[sql] def copy(newNumRowsUpdated: Long): StateOperatorProgress =
+    new StateOperatorProgress(numRowsTotal, newNumRowsUpdated, memoryUsedBytes, customMetrics)
+
   private[sql] def jsonValue: JValue = {
     ("numRowsTotal" -> JInt(numRowsTotal)) ~
-    ("numRowsUpdated" -> JInt(numRowsUpdated))
+    ("numRowsUpdated" -> JInt(numRowsUpdated)) ~
+    ("memoryUsedBytes" -> JInt(memoryUsedBytes)) ~
+    ("customMetrics" -> {
+      if (!customMetrics.isEmpty) {
+        val keys = customMetrics.keySet.asScala.toSeq.sorted
+        keys.map { k => k -> JInt(customMetrics.get(k).toLong) : JObject }.reduce(_ ~ _)
+      } else {
+        JNothing
+      }
+    })
   }
 
   override def toString: String = prettyJson
@@ -125,6 +140,7 @@ class StreamingQueryProgress private[sql](
     ("runId" -> JString(runId.toString)) ~
     ("name" -> JString(name)) ~
     ("timestamp" -> JString(timestamp)) ~
+    ("batchId" -> JInt(batchId)) ~
     ("numInputRows" -> JInt(numInputRows)) ~
     ("inputRowsPerSecond" -> safeDoubleToJValue(inputRowsPerSecond)) ~
     ("processedRowsPerSecond" -> safeDoubleToJValue(processedRowsPerSecond)) ~
@@ -145,7 +161,7 @@ class StreamingQueryProgress private[sql](
  * @param endOffset              The ending offset for data being read.
  * @param numInputRows           The number of records read from this source.
  * @param inputRowsPerSecond     The rate at which data is arriving from this source.
- * @param processedRowsPerSecond The rate at which data from this source is being procressed by
+ * @param processedRowsPerSecond The rate at which data from this source is being processed by
  *                               Spark.
  * @since 2.1.0
  */

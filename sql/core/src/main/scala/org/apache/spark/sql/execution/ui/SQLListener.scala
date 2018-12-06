@@ -17,21 +17,15 @@
 
 package org.apache.spark.sql.execution.ui
 
-import scala.collection.mutable
-
 import com.fasterxml.jackson.databind.JavaType
 import com.fasterxml.jackson.databind.`type`.TypeFactory
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.util.Converter
 
-import org.apache.spark.{JobExecutionStatus, SparkConf}
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler._
-import org.apache.spark.sql.execution.{SparkPlanInfo, SQLExecution}
+import org.apache.spark.sql.execution.SparkPlanInfo
 import org.apache.spark.sql.execution.metric._
-import org.apache.spark.ui.SparkUI
-import org.apache.spark.util.AccumulatorContext
 
 @DeveloperApi
 case class SparkListenerSQLExecutionStart(
@@ -89,6 +83,7 @@ private class LongLongTupleConverter extends Converter[(Object, Object), (Long, 
     typeFactory.constructSimpleType(classOf[(_, _)], classOf[(_, _)], Array(longType, longType))
   }
 }
+<<<<<<< HEAD
 
 class SQLHistoryListenerFactory extends SparkHistoryListenerFactory {
 
@@ -496,3 +491,5 @@ private[ui] class SQLTaskMetrics(
     val attemptId: Long, // TODO not used yet
     var finished: Boolean,
     var accumulatorUpdates: Seq[(Long, Any)])
+=======
+>>>>>>> master

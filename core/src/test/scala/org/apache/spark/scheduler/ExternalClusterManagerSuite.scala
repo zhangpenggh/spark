@@ -69,6 +69,7 @@ private class DummySchedulerBackend extends SchedulerBackend {
   def stop() {}
   def reviveOffers() {}
   def defaultParallelism(): Int = 1
+  def maxNumConcurrentTasks(): Int = 0
 }
 
 private class DummyTaskScheduler extends TaskScheduler {
@@ -81,9 +82,12 @@ private class DummyTaskScheduler extends TaskScheduler {
   override def cancelTasks(stageId: Int, interruptThread: Boolean): Unit = {}
   override def killTaskAttempt(
     taskId: Long, interruptThread: Boolean, reason: String): Boolean = false
+  override def killAllTaskAttempts(
+    stageId: Int, interruptThread: Boolean, reason: String): Unit = {}
   override def setDAGScheduler(dagScheduler: DAGScheduler): Unit = {}
   override def defaultParallelism(): Int = 2
   override def executorLost(executorId: String, reason: ExecutorLossReason): Unit = {}
+  override def workerRemoved(workerId: String, host: String, message: String): Unit = {}
   override def applicationAttemptId(): Option[String] = None
   def executorHeartbeatReceived(
       execId: String,

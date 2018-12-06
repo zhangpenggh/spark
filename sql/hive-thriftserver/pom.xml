@@ -22,7 +22,11 @@
   <parent>
     <groupId>org.apache.spark</groupId>
     <artifactId>spark-parent_2.11</artifactId>
+<<<<<<< HEAD
     <version>2.2.2-SNAPSHOT</version>
+=======
+    <version>2.4.1-SNAPSHOT</version>
+>>>>>>> master
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
@@ -62,6 +66,16 @@
     <dependency>
       <groupId>${hive.group}</groupId>
       <artifactId>hive-beeline</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-server</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-servlet</artifactId>
+      <scope>provided</scope>
     </dependency>
     <!-- Added for selenium: -->
     <dependency>

@@ -22,6 +22,7 @@ import java.util.Properties
 import scala.util.Random
 
 import org.apache.spark._
+import org.apache.spark.internal.config._
 import org.apache.spark.memory.{TaskMemoryManager, TestMemoryManager}
 import org.apache.spark.sql.{RandomDataGenerator, Row}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
@@ -29,7 +30,10 @@ import org.apache.spark.sql.catalyst.expressions.{InterpretedOrdering, UnsafePro
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.map.BytesToBytesMap
+<<<<<<< HEAD
 import org.apache.spark.util.collection.unsafe.sort.UnsafeExternalSorter
+=======
+>>>>>>> master
 
 /**
  * Test suite for [[UnsafeKVExternalSorter]], with randomly generated test data.
@@ -113,10 +117,11 @@ class UnsafeKVExternalSorterSuite extends SparkFunSuite with SharedSQLContext {
       pageSize: Long,
       spill: Boolean): Unit = {
     val memoryManager =
-      new TestMemoryManager(new SparkConf().set("spark.memory.offHeap.enabled", "false"))
+      new TestMemoryManager(new SparkConf().set(MEMORY_OFFHEAP_ENABLED.key, "false"))
     val taskMemMgr = new TaskMemoryManager(memoryManager, 0)
     TaskContext.setTaskContext(new TaskContextImpl(
       stageId = 0,
+      stageAttemptNumber = 0,
       partitionId = 0,
       taskAttemptId = 98456,
       attemptNumber = 0,
@@ -126,7 +131,7 @@ class UnsafeKVExternalSorterSuite extends SparkFunSuite with SharedSQLContext {
 
     val sorter = new UnsafeKVExternalSorter(
       keySchema, valueSchema, SparkEnv.get.blockManager, SparkEnv.get.serializerManager,
-      pageSize, UnsafeExternalSorter.DEFAULT_NUM_ELEMENTS_FOR_SPILL_THRESHOLD)
+      pageSize, SHUFFLE_SPILL_NUM_ELEMENTS_FORCE_SPILL_THRESHOLD.defaultValue.get)
 
     // Insert the keys and values into the sorter
     inputData.foreach { case (k, v) =>
@@ -230,7 +235,12 @@ class UnsafeKVExternalSorterSuite extends SparkFunSuite with SharedSQLContext {
     // Make sure we can successfully create a UnsafeKVExternalSorter with a `BytesToBytesMap`
     // which has duplicated keys and the number of entries exceeds its capacity.
     try {
+<<<<<<< HEAD
       TaskContext.setTaskContext(new TaskContextImpl(0, 0, 0, 0, taskMemoryManager, null, null))
+=======
+      val context = new TaskContextImpl(0, 0, 0, 0, 0, taskMemoryManager, new Properties(), null)
+      TaskContext.setTaskContext(context)
+>>>>>>> master
       new UnsafeKVExternalSorter(
         schema,
         schema,

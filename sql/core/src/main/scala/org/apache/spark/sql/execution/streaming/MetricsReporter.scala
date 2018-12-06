@@ -17,10 +17,19 @@
 
 package org.apache.spark.sql.execution.streaming
 
+<<<<<<< HEAD
+=======
+import java.text.SimpleDateFormat
+
+>>>>>>> master
 import com.codahale.metrics.{Gauge, MetricRegistry}
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.metrics.source.{Source => CodahaleSource}
+<<<<<<< HEAD
+=======
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
+>>>>>>> master
 import org.apache.spark.sql.streaming.StreamingQueryProgress
 
 /**
@@ -39,6 +48,26 @@ class MetricsReporter(
   registerGauge("processingRate-total", _.processedRowsPerSecond, 0.0)
   registerGauge("latency", _.durationMs.get("triggerExecution").longValue(), 0L)
 
+<<<<<<< HEAD
+=======
+  private val timestampFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'") // ISO8601
+  timestampFormat.setTimeZone(DateTimeUtils.getTimeZone("UTC"))
+
+  registerGauge("eventTime-watermark",
+    progress => convertStringDateToMillis(progress.eventTime.get("watermark")), 0L)
+
+  registerGauge("states-rowsTotal", _.stateOperators.map(_.numRowsTotal).sum, 0L)
+  registerGauge("states-usedBytes", _.stateOperators.map(_.memoryUsedBytes).sum, 0L)
+
+  private def convertStringDateToMillis(isoUtcDateStr: String) = {
+    if (isoUtcDateStr != null) {
+      timestampFormat.parse(isoUtcDateStr).getTime
+    } else {
+      0L
+    }
+  }
+
+>>>>>>> master
   private def registerGauge[T](
       name: String,
       f: StreamingQueryProgress => T,

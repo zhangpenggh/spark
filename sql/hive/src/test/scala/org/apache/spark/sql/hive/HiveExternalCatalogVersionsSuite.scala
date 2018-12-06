@@ -18,11 +18,22 @@
 package org.apache.spark.sql.hive
 
 import java.io.File
+<<<<<<< HEAD
 import java.nio.file.Files
 
 import scala.sys.process._
 
 import org.apache.spark.TestUtils
+=======
+import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Paths}
+
+import scala.sys.process._
+
+import org.apache.hadoop.conf.Configuration
+
+import org.apache.spark.{SecurityManager, SparkConf, TestUtils}
+>>>>>>> master
 import org.apache.spark.sql.{QueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.CatalogTableType
@@ -53,6 +64,7 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
   }
 
   private def tryDownloadSpark(version: String, path: String): Unit = {
+<<<<<<< HEAD
     // Try mirrors a few times until one succeeds
     for (i <- 0 until 3) {
       val preferredMirror =
@@ -63,10 +75,50 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
         return
       }
       logWarning(s"Failed to download Spark $version from $url")
+=======
+    // Try a few mirrors first; fall back to Apache archive
+    val mirrors =
+      (0 until 2).flatMap { _ =>
+        try {
+          Some(getStringFromUrl("https://www.apache.org/dyn/closer.lua?preferred=true"))
+        } catch {
+          // If we can't get a mirror URL, skip it. No retry.
+          case _: Exception => None
+        }
+      }
+    val sites = mirrors.distinct :+ "https://archive.apache.org/dist"
+    logInfo(s"Trying to download Spark $version from $sites")
+    for (site <- sites) {
+      val filename = s"spark-$version-bin-hadoop2.7.tgz"
+      val url = s"$site/spark/spark-$version/$filename"
+      logInfo(s"Downloading Spark $version from $url")
+      try {
+        getFileFromUrl(url, path, filename)
+        val downloaded = new File(sparkTestingDir, filename).getCanonicalPath
+        val targetDir = new File(sparkTestingDir, s"spark-$version").getCanonicalPath
+
+        Seq("mkdir", targetDir).!
+        val exitCode = Seq("tar", "-xzf", downloaded, "-C", targetDir, "--strip-components=1").!
+        Seq("rm", downloaded).!
+
+        // For a corrupted file, `tar` returns non-zero values. However, we also need to check
+        // the extracted file because `tar` returns 0 for empty file.
+        val sparkSubmit = new File(sparkTestingDir, s"spark-$version/bin/spark-submit")
+        if (exitCode == 0 && sparkSubmit.exists()) {
+          return
+        } else {
+          Seq("rm", "-rf", targetDir).!
+        }
+      } catch {
+        case ex: Exception =>
+          logWarning(s"Failed to download Spark $version from $url: ${ex.getMessage}")
+      }
+>>>>>>> master
     }
     fail(s"Unable to download Spark $version")
   }
 
+<<<<<<< HEAD
 
   private def downloadSpark(version: String): Unit = {
     tryDownloadSpark(version, sparkTestingDir.getCanonicalPath)
@@ -83,6 +135,38 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
 
   private def genDataDir(name: String): String = {
     new File(tmpDataDir, name).getCanonicalPath
+=======
+  private def genDataDir(name: String): String = {
+    new File(tmpDataDir, name).getCanonicalPath
+  }
+
+  private def getFileFromUrl(urlString: String, targetDir: String, filename: String): Unit = {
+    val conf = new SparkConf
+    // if the caller passes the name of an existing file, we want doFetchFile to write over it with
+    // the contents from the specified url.
+    conf.set("spark.files.overwrite", "true")
+    val securityManager = new SecurityManager(conf)
+    val hadoopConf = new Configuration
+
+    val outDir = new File(targetDir)
+    if (!outDir.exists()) {
+      outDir.mkdirs()
+    }
+
+    // propagate exceptions up to the caller of getFileFromUrl
+    Utils.doFetchFile(urlString, outDir, filename, conf, securityManager, hadoopConf)
+  }
+
+  private def getStringFromUrl(urlString: String): String = {
+    val contentFile = File.createTempFile("string-", ".txt")
+    contentFile.deleteOnExit()
+
+    // exceptions will propagate to the caller of getStringFromUrl
+    getFileFromUrl(urlString, contentFile.getParent, contentFile.getName)
+
+    val contentPath = Paths.get(contentFile.toURI)
+    new String(Files.readAllBytes(contentPath), StandardCharsets.UTF_8)
+>>>>>>> master
   }
 
   override def beforeAll(): Unit = {
@@ -125,7 +209,11 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
     PROCESS_TABLES.testingVersions.zipWithIndex.foreach { case (version, index) =>
       val sparkHome = new File(sparkTestingDir, s"spark-$version")
       if (!sparkHome.exists()) {
+<<<<<<< HEAD
         downloadSpark(version)
+=======
+        tryDownloadSpark(version, sparkTestingDir.getCanonicalPath)
+>>>>>>> master
       }
 
       val args = Seq(
@@ -137,7 +225,11 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
         "--conf", s"spark.sql.test.version.index=$index",
         "--driver-java-options", s"-Dderby.system.home=${wareHousePath.getCanonicalPath}",
         tempPyFile.getCanonicalPath)
+<<<<<<< HEAD
       runSparkSubmit(args, Some(sparkHome.getCanonicalPath))
+=======
+      runSparkSubmit(args, Some(sparkHome.getCanonicalPath), false)
+>>>>>>> master
     }
 
     tempPyFile.delete()
@@ -159,7 +251,11 @@ class HiveExternalCatalogVersionsSuite extends SparkSubmitTestUtils {
 
 object PROCESS_TABLES extends QueryTest with SQLTestUtils {
   // Tests the latest version of every release line.
+<<<<<<< HEAD
   val testingVersions = Seq("2.0.2", "2.1.2", "2.2.0")
+=======
+  val testingVersions = Seq("2.2.2", "2.3.2", "2.4.0")
+>>>>>>> master
 
   protected var spark: SparkSession = _
 
@@ -213,7 +309,11 @@ object PROCESS_TABLES extends QueryTest with SQLTestUtils {
 
       // SPARK-22356: overlapped columns between data and partition schema in data source tables
       val tbl_with_col_overlap = s"tbl_with_col_overlap_$index"
+<<<<<<< HEAD
       // For Spark 2.2.0 and 2.1.x, the behavior is different from Spark 2.0.
+=======
+      // For Spark 2.2.0 and 2.1.x, the behavior is different from Spark 2.0, 2.2.1, 2.3+
+>>>>>>> master
       if (testingVersions(index).startsWith("2.1") || testingVersions(index) == "2.2.0") {
         spark.sql("msck repair table " + tbl_with_col_overlap)
         assert(spark.table(tbl_with_col_overlap).columns === Array("i", "j", "p"))

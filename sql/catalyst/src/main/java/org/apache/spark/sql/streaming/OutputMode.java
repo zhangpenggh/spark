@@ -21,7 +21,11 @@ import org.apache.spark.annotation.InterfaceStability;
 import org.apache.spark.sql.catalyst.streaming.InternalOutputModes;
 
 /**
+<<<<<<< HEAD
  * OutputMode is used to what data will be written to a streaming sink when there is
+=======
+ * OutputMode describes what data will be written to a streaming sink when there is
+>>>>>>> master
  * new data available in a streaming DataFrame/Dataset.
  *
  * @since 2.0.0

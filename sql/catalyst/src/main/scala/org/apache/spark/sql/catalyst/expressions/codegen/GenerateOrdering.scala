@@ -89,7 +89,7 @@ object GenerateOrdering extends CodeGenerator[Seq[SortOrder], Ordering[InternalR
       s"""
           ${ctx.INPUT_ROW} = a;
           boolean $isNullA;
-          ${ctx.javaType(order.child.dataType)} $primitiveA;
+          ${CodeGenerator.javaType(order.child.dataType)} $primitiveA;
           {
             ${eval.code}
             $isNullA = ${eval.isNull};
@@ -97,7 +97,7 @@ object GenerateOrdering extends CodeGenerator[Seq[SortOrder], Ordering[InternalR
           }
           ${ctx.INPUT_ROW} = b;
           boolean $isNullB;
-          ${ctx.javaType(order.child.dataType)} $primitiveB;
+          ${CodeGenerator.javaType(order.child.dataType)} $primitiveB;
           {
             ${eval.code}
             $isNullB = ${eval.isNull};
@@ -177,19 +177,20 @@ object GenerateOrdering extends CodeGenerator[Seq[SortOrder], Ordering[InternalR
           ${ctx.initMutableStates()}
         }
 
-        ${ctx.declareAddedFunctions()}
-
         public int compare(InternalRow a, InternalRow b) {
           $comparisons
           return 0;
         }
+
+        ${ctx.declareAddedFunctions()}
       }"""
 
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
     logDebug(s"Generated Ordering by ${ordering.mkString(",")}:\n${CodeFormatter.format(code)}")
 
-    CodeGenerator.compile(code).generate(ctx.references.toArray).asInstanceOf[BaseOrdering]
+    val (clazz, _) = CodeGenerator.compile(code)
+    clazz.generate(ctx.references.toArray).asInstanceOf[BaseOrdering]
   }
 }
 

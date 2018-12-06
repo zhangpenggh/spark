@@ -29,7 +29,11 @@ import org.apache.spark.sql.types.{StructField, StructType}
  * An analyzer rule that replaces [[UnresolvedInlineTable]] with [[LocalRelation]].
  */
 case class ResolveInlineTables(conf: SQLConf) extends Rule[LogicalPlan] with CastSupport {
+<<<<<<< HEAD
   override def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
+=======
+  override def apply(plan: LogicalPlan): LogicalPlan = plan resolveOperators {
+>>>>>>> master
     case table: UnresolvedInlineTable if table.expressionsResolved =>
       validateInputDimension(table)
       validateInputEvaluable(table)
@@ -103,7 +107,7 @@ case class ResolveInlineTables(conf: SQLConf) extends Rule[LogicalPlan] with Cas
           castedExpr.eval()
         } catch {
           case NonFatal(ex) =>
-            table.failAnalysis(s"failed to evaluate expression ${e.sql}: ${ex.getMessage}")
+            table.failAnalysis(s"failed to evaluate expression ${e.sql}: ${ex.getMessage}", ex)
         }
       })
     }

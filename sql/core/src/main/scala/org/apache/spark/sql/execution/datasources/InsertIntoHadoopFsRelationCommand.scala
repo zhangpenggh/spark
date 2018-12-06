@@ -27,7 +27,11 @@ import org.apache.spark.sql.catalyst.catalog.{BucketSpec, CatalogTable, CatalogT
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command._
+import org.apache.spark.sql.internal.SQLConf.PartitionOverwriteMode
+import org.apache.spark.sql.util.SchemaUtils
 
 /**
  * A command for writing data to a [[HadoopFsRelation]].  Supports both overwriting and appending.
@@ -51,15 +55,14 @@ case class InsertIntoHadoopFsRelationCommand(
     query: LogicalPlan,
     mode: SaveMode,
     catalogTable: Option[CatalogTable],
-    fileIndex: Option[FileIndex])
-  extends RunnableCommand {
-
+    fileIndex: Option[FileIndex],
+    outputColumnNames: Seq[String])
+  extends DataWritingCommand {
   import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils.escapePathName
 
-  override protected def innerChildren: Seq[LogicalPlan] = query :: Nil
-
-  override def run(sparkSession: SparkSession): Seq[Row] = {
+  override def run(sparkSession: SparkSession, child: SparkPlan): Seq[Row] = {
     // Most formats don't do well with duplicate columns, so lets not allow that
+<<<<<<< HEAD
     if (query.schema.fieldNames.length != query.schema.fieldNames.distinct.length) {
       val duplicateColumns = query.schema.fieldNames.groupBy(identity).collect {
         case (x, ys) if ys.length > 1 => "\"" + x + "\""
@@ -67,6 +70,12 @@ case class InsertIntoHadoopFsRelationCommand(
       throw new AnalysisException(s"Duplicate column(s): $duplicateColumns found, " +
         "cannot save to file.")
     }
+=======
+    SchemaUtils.checkColumnNameDuplication(
+      outputColumnNames,
+      s"when inserting into $outputPath",
+      sparkSession.sessionState.conf.caseSensitiveAnalysis)
+>>>>>>> master
 
     val hadoopConf = sparkSession.sessionState.newHadoopConfWithOptions(options)
     val fs = outputPath.getFileSystem(hadoopConf)
@@ -92,14 +101,23 @@ case class InsertIntoHadoopFsRelationCommand(
     }
 
     val pathExists = fs.exists(qualifiedOutputPath)
-    // If we are appending data to an existing dir.
-    val isAppend = pathExists && (mode == SaveMode.Append)
+
+    val parameters = CaseInsensitiveMap(options)
+
+    val partitionOverwriteMode = parameters.get("partitionOverwriteMode")
+      .map(mode => PartitionOverwriteMode.withName(mode.toUpperCase))
+      .getOrElse(sparkSession.sessionState.conf.partitionOverwriteMode)
+    val enableDynamicOverwrite = partitionOverwriteMode == PartitionOverwriteMode.DYNAMIC
+    // This config only makes sense when we are overwriting a partitioned dataset with dynamic
+    // partition columns.
+    val dynamicPartitionOverwrite = enableDynamicOverwrite && mode == SaveMode.Overwrite &&
+      staticPartitions.size < partitionColumns.length
 
     val committer = FileCommitProtocol.instantiate(
       sparkSession.sessionState.conf.fileCommitProtocolClass,
       jobId = java.util.UUID.randomUUID().toString,
       outputPath = outputPath.toString,
-      isAppend = isAppend)
+      dynamicPartitionOverwrite = dynamicPartitionOverwrite)
 
     val doInsertion = (mode, pathExists) match {
       case (SaveMode.ErrorIfExists, true) =>
@@ -107,6 +125,12 @@ case class InsertIntoHadoopFsRelationCommand(
       case (SaveMode.Overwrite, true) =>
         if (ifPartitionNotExists && matchingPartitions.nonEmpty) {
           false
+<<<<<<< HEAD
+=======
+        } else if (dynamicPartitionOverwrite) {
+          // For dynamic partition overwrite, do not delete partition directories ahead.
+          true
+>>>>>>> master
         } else {
           deleteMatchingPartitions(fs, qualifiedOutputPath, customPartitionLocations, committer)
           true
@@ -121,16 +145,18 @@ case class InsertIntoHadoopFsRelationCommand(
 
     if (doInsertion) {
 
-      // Callback for updating metastore partition metadata after the insertion job completes.
-      def refreshPartitionsCallback(updatedPartitions: Seq[TablePartitionSpec]): Unit = {
+      def refreshUpdatedPartitions(updatedPartitionPaths: Set[String]): Unit = {
+        val updatedPartitions = updatedPartitionPaths.map(PartitioningUtils.parsePathFragment)
         if (partitionsTrackedByCatalog) {
-          val newPartitions = updatedPartitions.toSet -- initialMatchingPartitions
+          val newPartitions = updatedPartitions -- initialMatchingPartitions
           if (newPartitions.nonEmpty) {
             AlterTableAddPartitionCommand(
               catalogTable.get.identifier, newPartitions.toSeq.map(p => (p, None)),
               ifNotExists = true).run(sparkSession)
           }
-          if (mode == SaveMode.Overwrite) {
+          // For dynamic partition overwrite, we never remove partitions but only update existing
+          // ones.
+          if (mode == SaveMode.Overwrite && !dynamicPartitionOverwrite) {
             val deletedPartitions = initialMatchingPartitions.toSet -- updatedPartitions
             if (deletedPartitions.nonEmpty) {
               AlterTableDropPartitionCommand(
@@ -142,23 +168,41 @@ case class InsertIntoHadoopFsRelationCommand(
         }
       }
 
-      FileFormatWriter.write(
-        sparkSession = sparkSession,
-        queryExecution = Dataset.ofRows(sparkSession, query).queryExecution,
-        fileFormat = fileFormat,
-        committer = committer,
-        outputSpec = FileFormatWriter.OutputSpec(
-          qualifiedOutputPath.toString, customPartitionLocations),
-        hadoopConf = hadoopConf,
-        partitionColumns = partitionColumns,
-        bucketSpec = bucketSpec,
-        refreshFunction = refreshPartitionsCallback,
-        options = options)
+      val updatedPartitionPaths =
+        FileFormatWriter.write(
+          sparkSession = sparkSession,
+          plan = child,
+          fileFormat = fileFormat,
+          committer = committer,
+          outputSpec = FileFormatWriter.OutputSpec(
+            qualifiedOutputPath.toString, customPartitionLocations, outputColumns),
+          hadoopConf = hadoopConf,
+          partitionColumns = partitionColumns,
+          bucketSpec = bucketSpec,
+          statsTrackers = Seq(basicWriteJobStatsTracker(hadoopConf)),
+          options = options)
+
+
+      // update metastore partition metadata
+      if (updatedPartitionPaths.isEmpty && staticPartitions.nonEmpty
+        && partitionColumns.length == staticPartitions.size) {
+        // Avoid empty static partition can't loaded to datasource table.
+        val staticPathFragment =
+          PartitioningUtils.getPathFragment(staticPartitions, partitionColumns)
+        refreshUpdatedPartitions(Set(staticPathFragment))
+      } else {
+        refreshUpdatedPartitions(updatedPartitionPaths)
+      }
 
       // refresh cached files in FileIndex
       fileIndex.foreach(_.refresh())
       // refresh data cache if table is cached
       sparkSession.catalog.refreshByPath(outputPath.toString)
+
+      if (catalogTable.nonEmpty) {
+        CommandUtils.updateTableStats(sparkSession, catalogTable.get)
+      }
+
     } else {
       logInfo("Skipping insertion into a relation that already exists.")
     }

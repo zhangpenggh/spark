@@ -50,7 +50,11 @@ class FileStreamSource(
   @transient private val fs = new Path(path).getFileSystem(hadoopConf)
 
   private val qualifiedBasePath: Path = {
+<<<<<<< HEAD
     fs.makeQualified(new Path(path))  // can contains glob patterns
+=======
+    fs.makeQualified(new Path(path))  // can contain glob patterns
+>>>>>>> master
   }
 
   private val optionsWithPartitionBasePath = sourceOptions.optionMapWithoutPath ++ {
@@ -166,13 +170,13 @@ class FileStreamSource(
     val newDataSource =
       DataSource(
         sparkSession,
-        paths = files.map(_.path),
+        paths = files.map(f => new Path(new URI(f.path)).toString),
         userSpecifiedSchema = Some(schema),
         partitionColumns = partitionColumns,
         className = fileFormatClassName,
         options = optionsWithPartitionBasePath)
     Dataset.ofRows(sparkSession, LogicalRelation(newDataSource.resolveRelation(
-      checkFilesExist = false)))
+      checkFilesExist = false), isStreaming = true))
   }
 
   /**
@@ -196,7 +200,7 @@ class FileStreamSource(
   private def allFilesUsingMetadataLogFileIndex() = {
     // Note if `sourceHasMetadata` holds, then `qualifiedBasePath` is guaranteed to be a
     // non-glob path
-    new MetadataLogFileIndex(sparkSession, qualifiedBasePath).allFiles()
+    new MetadataLogFileIndex(sparkSession, qualifiedBasePath, None).allFiles()
   }
 
   /**

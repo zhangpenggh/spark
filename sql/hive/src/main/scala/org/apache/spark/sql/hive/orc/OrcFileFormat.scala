@@ -32,15 +32,17 @@ import org.apache.hadoop.io.{NullWritable, Writable}
 import org.apache.hadoop.mapred.{JobConf, OutputFormat => MapRedOutputFormat, RecordWriter, Reporter}
 import org.apache.hadoop.mapreduce._
 import org.apache.hadoop.mapreduce.lib.input.{FileInputFormat, FileSplit}
+import org.apache.orc.OrcConf.COMPRESS
 
 import org.apache.spark.TaskContext
-import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.execution.datasources.orc.OrcOptions
 import org.apache.spark.sql.hive.{HiveInspectors, HiveShim}
 import org.apache.spark.sql.sources.{Filter, _}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types._
 import org.apache.spark.util.SerializableConfiguration
 
 /**
@@ -57,9 +59,15 @@ class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable
       sparkSession: SparkSession,
       options: Map[String, String],
       files: Seq[FileStatus]): Option[StructType] = {
+    val ignoreCorruptFiles = sparkSession.sessionState.conf.ignoreCorruptFiles
     OrcFileOperator.readSchema(
       files.map(_.getPath.toString),
+<<<<<<< HEAD
       Some(sparkSession.sessionState.newHadoopConf())
+=======
+      Some(sparkSession.sessionState.newHadoopConf()),
+      ignoreCorruptFiles
+>>>>>>> master
     )
   }
 
@@ -68,11 +76,12 @@ class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable
       job: Job,
       options: Map[String, String],
       dataSchema: StructType): OutputWriterFactory = {
-    val orcOptions = new OrcOptions(options)
+
+    val orcOptions = new OrcOptions(options, sparkSession.sessionState.conf)
 
     val configuration = job.getConfiguration
 
-    configuration.set(OrcRelation.ORC_COMPRESSION, orcOptions.compressionCodec)
+    configuration.set(COMPRESS.getAttribute, orcOptions.compressionCodec)
     configuration match {
       case conf: JobConf =>
         conf.setOutputFormat(classOf[OrcOutputFormat])
@@ -93,8 +102,8 @@ class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable
 
       override def getFileExtension(context: TaskAttemptContext): String = {
         val compressionExtension: String = {
-          val name = context.getConfiguration.get(OrcRelation.ORC_COMPRESSION)
-          OrcRelation.extensionsForCompressionCodecNames.getOrElse(name, "")
+          val name = context.getConfiguration.get(COMPRESS.getAttribute)
+          OrcFileFormat.extensionsForCompressionCodecNames.getOrElse(name, "")
         }
 
         compressionExtension + ".orc"
@@ -117,16 +126,18 @@ class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable
       filters: Seq[Filter],
       options: Map[String, String],
       hadoopConf: Configuration): (PartitionedFile) => Iterator[InternalRow] = {
+
     if (sparkSession.sessionState.conf.orcFilterPushDown) {
       // Sets pushed predicates
       OrcFilters.createFilter(requiredSchema, filters.toArray).foreach { f =>
-        hadoopConf.set(OrcRelation.SARG_PUSHDOWN, f.toKryo)
+        hadoopConf.set(OrcFileFormat.SARG_PUSHDOWN, f.toKryo)
         hadoopConf.setBoolean(ConfVars.HIVEOPTINDEXFILTER.varname, true)
       }
     }
 
     val broadcastedHadoopConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
+    val ignoreCorruptFiles = sparkSession.sessionState.conf.ignoreCorruptFiles
 
     (file: PartitionedFile) => {
       val conf = broadcastedHadoopConf.value.value
@@ -136,11 +147,20 @@ class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable
       // SPARK-8501: Empty ORC files always have an empty schema stored in their footer. In this
       // case, `OrcFileOperator.readSchema` returns `None`, and we can't read the underlying file
       // using the given physical schema. Instead, we simply return an empty iterator.
+<<<<<<< HEAD
       val isEmptyFile = OrcFileOperator.readSchema(Seq(filePath.toString), Some(conf)).isEmpty
       if (isEmptyFile) {
         Iterator.empty
       } else {
         OrcRelation.setRequiredColumns(conf, dataSchema, requiredSchema)
+=======
+      val isEmptyFile =
+        OrcFileOperator.readSchema(Seq(filePath.toString), Some(conf), ignoreCorruptFiles).isEmpty
+      if (isEmptyFile) {
+        Iterator.empty
+      } else {
+        OrcFileFormat.setRequiredColumns(conf, dataSchema, requiredSchema)
+>>>>>>> master
 
         val orcRecordReader = {
           val job = Job.getInstance(conf)
@@ -156,10 +176,11 @@ class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable
         }
 
         val recordsIterator = new RecordReaderIterator[OrcStruct](orcRecordReader)
-        Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => recordsIterator.close()))
+        Option(TaskContext.get())
+          .foreach(_.addTaskCompletionListener[Unit](_ => recordsIterator.close()))
 
         // Unwraps `OrcStruct`s to `UnsafeRow`s
-        OrcRelation.unwrapOrcStructs(
+        OrcFileFormat.unwrapOrcStructs(
           conf,
           dataSchema,
           requiredSchema,
@@ -167,6 +188,23 @@ class OrcFileFormat extends FileFormat with DataSourceRegister with Serializable
           recordsIterator)
       }
     }
+  }
+
+  override def supportDataType(dataType: DataType, isReadPath: Boolean): Boolean = dataType match {
+    case _: AtomicType => true
+
+    case st: StructType => st.forall { f => supportDataType(f.dataType, isReadPath) }
+
+    case ArrayType(elementType, _) => supportDataType(elementType, isReadPath)
+
+    case MapType(keyType, valueType, _) =>
+      supportDataType(keyType, isReadPath) && supportDataType(valueType, isReadPath)
+
+    case udt: UserDefinedType[_] => supportDataType(udt.sqlType, isReadPath)
+
+    case _: NullType => isReadPath
+
+    case _ => false
   }
 }
 
@@ -254,10 +292,7 @@ private[orc] class OrcOutputWriter(
   }
 }
 
-private[orc] object OrcRelation extends HiveInspectors {
-  // The references of Hive's classes will be minimized.
-  val ORC_COMPRESSION = "orc.compress"
-
+private[orc] object OrcFileFormat extends HiveInspectors {
   // This constant duplicates `OrcInputFormat.SARG_PUSHDOWN`, which is unfortunately not public.
   private[orc] val SARG_PUSHDOWN = "sarg.pushdown"
 

@@ -73,7 +73,7 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
 
     catalogProxy.getCachedTable(tableIdentifier) match {
       case null => None // Cache miss
-      case logical @ LogicalRelation(relation: HadoopFsRelation, _, _) =>
+      case logical @ LogicalRelation(relation: HadoopFsRelation, _, _, _) =>
         val cachedRelationFileFormatClass = relation.fileFormat.getClass
 
         expectedFileFormat match {
@@ -154,7 +154,7 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
           Some(partitionSchema))
 
         val logicalRelation = cached.getOrElse {
-          val sizeInBytes = relation.stats(sparkSession.sessionState.conf).sizeInBytes.toLong
+          val sizeInBytes = relation.stats.sizeInBytes.toLong
           val fileIndex = {
             val index = new CatalogFileIndex(sparkSession, relation.tableMeta, sizeInBytes)
             if (lazyPruningEnabled) {
@@ -170,7 +170,10 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
             location = fileIndex,
             partitionSchema = partitionSchema,
             dataSchema = updatedTable.dataSchema,
+<<<<<<< HEAD
             // We don't support hive bucketed tables, only ones we write out.
+=======
+>>>>>>> master
             bucketSpec = None,
             fileFormat = fileFormat,
             options = options)(sparkSession = sparkSession)
@@ -198,7 +201,10 @@ private[hive] class HiveMetastoreCatalog(sparkSession: SparkSession) extends Log
                 sparkSession = sparkSession,
                 paths = rootPath.toString :: Nil,
                 userSpecifiedSchema = Option(updatedTable.dataSchema),
+<<<<<<< HEAD
                 // We don't support hive bucketed tables, only ones we write out.
+=======
+>>>>>>> master
                 bucketSpec = None,
                 options = options,
                 className = fileType).resolveRelation(),

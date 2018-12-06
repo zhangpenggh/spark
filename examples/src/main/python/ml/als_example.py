@@ -60,8 +60,23 @@ if __name__ == "__main__":
     userRecs = model.recommendForAllUsers(10)
     # Generate top 10 user recommendations for each movie
     movieRecs = model.recommendForAllItems(10)
+<<<<<<< HEAD
     # $example off$
     userRecs.show()
     movieRecs.show()
+=======
+
+    # Generate top 10 movie recommendations for a specified set of users
+    users = ratings.select(als.getUserCol()).distinct().limit(3)
+    userSubsetRecs = model.recommendForUserSubset(users, 10)
+    # Generate top 10 user recommendations for a specified set of movies
+    movies = ratings.select(als.getItemCol()).distinct().limit(3)
+    movieSubSetRecs = model.recommendForItemSubset(movies, 10)
+    # $example off$
+    userRecs.show()
+    movieRecs.show()
+    userSubsetRecs.show()
+    movieSubSetRecs.show()
+>>>>>>> master
 
     spark.stop()

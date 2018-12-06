@@ -23,7 +23,11 @@ import java.util.Date
 
 import scala.collection.mutable.ArrayBuffer
 
+<<<<<<< HEAD
 import org.scalatest.concurrent.Timeouts
+=======
+import org.scalatest.concurrent.{Signaler, ThreadSignaler, TimeLimits}
+>>>>>>> master
 import org.scalatest.exceptions.TestFailedDueToTimeoutException
 import org.scalatest.time.SpanSugar._
 
@@ -31,11 +35,25 @@ import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.test.ProcessTestUtils.ProcessOutputCapturer
 import org.apache.spark.util.Utils
 
+<<<<<<< HEAD
 trait SparkSubmitTestUtils extends SparkFunSuite with Timeouts {
 
   // NOTE: This is an expensive operation in terms of time (10 seconds+). Use sparingly.
   // This is copied from org.apache.spark.deploy.SparkSubmitSuite
   protected def runSparkSubmit(args: Seq[String], sparkHomeOpt: Option[String] = None): Unit = {
+=======
+trait SparkSubmitTestUtils extends SparkFunSuite with TimeLimits {
+
+  // Necessary to make ScalaTest 3.x interrupt a thread on the JVM like ScalaTest 2.2.x
+  implicit val defaultSignaler: Signaler = ThreadSignaler
+
+  // NOTE: This is an expensive operation in terms of time (10 seconds+). Use sparingly.
+  // This is copied from org.apache.spark.deploy.SparkSubmitSuite
+  protected def runSparkSubmit(
+      args: Seq[String],
+      sparkHomeOpt: Option[String] = None,
+      isSparkTesting: Boolean = true): Unit = {
+>>>>>>> master
     val sparkHome = sparkHomeOpt.getOrElse(
       sys.props.getOrElse("spark.test.home", fail("spark.test.home is not set!")))
     val history = ArrayBuffer.empty[String]
@@ -50,7 +68,18 @@ trait SparkSubmitTestUtils extends SparkFunSuite with Timeouts {
 
     val builder = new ProcessBuilder(commands: _*).directory(new File(sparkHome))
     val env = builder.environment()
+<<<<<<< HEAD
     env.put("SPARK_TESTING", "1")
+=======
+    if (isSparkTesting) {
+      env.put("SPARK_TESTING", "1")
+    } else {
+      env.remove("SPARK_TESTING")
+      env.remove("SPARK_SQL_TESTING")
+      env.remove("SPARK_PREPEND_CLASSES")
+      env.remove("SPARK_DIST_CLASSPATH")
+    }
+>>>>>>> master
     env.put("SPARK_HOME", sparkHome)
 
     def captureOutput(source: String)(line: String): Unit = {

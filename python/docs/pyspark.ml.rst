@@ -97,6 +97,17 @@ pyspark.ml.fpm module
     :undoc-members:
     :inherited-members:
 
+<<<<<<< HEAD
+=======
+pyspark.ml.image module
+----------------------------
+
+.. automodule:: pyspark.ml.image
+    :members:
+    :undoc-members:
+    :inherited-members:
+
+>>>>>>> master
 pyspark.ml.util module
 ----------------------------
 

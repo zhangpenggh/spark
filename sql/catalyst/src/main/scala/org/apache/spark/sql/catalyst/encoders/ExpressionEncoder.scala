@@ -128,7 +128,7 @@ object ExpressionEncoder {
         case b: BoundReference if b == originalInputObject => newInputObject
       })
 
-      if (enc.flat) {
+      val serializerExpr = if (enc.flat) {
         newSerializer.head
       } else {
         // For non-flat encoder, the input object is not top level anymore after being combined to
@@ -146,6 +146,7 @@ object ExpressionEncoder {
           Invoke(Literal.fromObject(None), "equals", BooleanType, newInputObject :: Nil))
         If(nullCheck, Literal.create(null, struct.dataType), struct)
       }
+      Alias(serializerExpr, s"_${index + 1}")()
     }
 
     val childrenDeserializers = encoders.zipWithIndex.map { case (enc, index) =>
@@ -208,7 +209,8 @@ object ExpressionEncoder {
 }
 
 /**
- * A generic encoder for JVM objects.
+ * A generic encoder for JVM objects that uses Catalyst Expressions for a `serializer`
+ * and a `deserializer`.
  *
  * @param schema The schema after converting `T` to a Spark SQL row.
  * @param serializer A set of expressions, one for each top-level field that can be used to
@@ -235,7 +237,7 @@ case class ExpressionEncoder[T](
   assert(serializer.flatMap { ser =>
     val boundRefs = ser.collect { case b: BoundReference => b }
     assert(boundRefs.nonEmpty,
-      "each serializer expression should contains at least one `BoundReference`")
+      "each serializer expression should contain at least one `BoundReference`")
     boundRefs
   }.distinct.length <= 1, "all serializer expressions must use the same BoundReference.")
 

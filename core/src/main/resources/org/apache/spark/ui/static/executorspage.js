@@ -25,12 +25,22 @@ function getThreadDumpEnabled() {
     return threadDumpEnabled;
 }
 
+<<<<<<< HEAD
 function formatStatus(status, type) {
-    if (status) {
-        return "Active"
-    } else {
-        return "Dead"
+=======
+function formatStatus(status, type, row) {
+    if (row.isBlacklisted) {
+        return "Blacklisted";
     }
+
+>>>>>>> master
+    if (status) {
+        if (row.blacklistedInStages.length == 0) {
+            return "Active"
+        }
+        return "Active (Blacklisted in Stages: [" + row.blacklistedInStages.join(", ") + "])";
+    }
+    return "Dead"
 }
 
 jQuery.extend(jQuery.fn.dataTableExt.oSort, {
@@ -415,9 +425,16 @@ $(document).ready(function () {
                             }
                         },
                         {data: 'hostPort'},
+<<<<<<< HEAD
                         {data: 'isActive', render: function (data, type, row) {
                             if (row.isBlacklisted) return "Blacklisted";
                             else return formatStatus (data, type);
+=======
+                        {
+                            data: 'isActive',
+                            render: function (data, type, row) {
+                                return formatStatus (data, type, row);
+>>>>>>> master
                             }
                         },
                         {data: 'rddBlocks'},

@@ -40,6 +40,12 @@ private[hive] trait HiveClient {
   def getConf(key: String, defaultValue: String): String
 
   /**
+   * Return the associated Hive SessionState of this [[HiveClientImpl]]
+   * @return [[Any]] not SessionState to avoid linkage error
+   */
+  def getState: Any
+
+  /**
    * Runs a HiveQL command using Hive, returning the results as a list of strings.  Each row will
    * result in one string.
    */
@@ -85,10 +91,25 @@ private[hive] trait HiveClient {
   def dropTable(dbName: String, tableName: String, ignoreIfNotExists: Boolean, purge: Boolean): Unit
 
   /** Alter a table whose name matches the one specified in `table`, assuming it exists. */
-  final def alterTable(table: CatalogTable): Unit = alterTable(table.identifier.table, table)
+  final def alterTable(table: CatalogTable): Unit = {
+    alterTable(table.database, table.identifier.table, table)
+  }
 
-  /** Updates the given table with new metadata, optionally renaming the table. */
-  def alterTable(tableName: String, table: CatalogTable): Unit
+  /**
+   * Updates the given table with new metadata, optionally renaming the table or
+   * moving across different database.
+   */
+  def alterTable(dbName: String, tableName: String, table: CatalogTable): Unit
+
+  /**
+   * Updates the given table with a new data schema and table properties, and keep everything else
+   * unchanged.
+   *
+   * TODO(cloud-fan): it's a little hacky to introduce the schema table properties here in
+   * `HiveClient`, but we don't have a cleaner solution now.
+   */
+  def alterTableDataSchema(
+    dbName: String, tableName: String, newDataSchema: StructType, schemaProps: Map[String, String])
 
   /**
    * Updates the given table with a new data schema and table properties, and keep everything else

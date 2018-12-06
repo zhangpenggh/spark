@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+import com.codahale.metrics.MetricSet;
 import com.google.common.collect.Lists;
 import org.apache.spark.network.shuffle.protocol.UnRegisterExecutor;
 import org.slf4j.Logger;
@@ -49,6 +50,7 @@ public class ExternalShuffleClient extends ShuffleClient {
   private final TransportConf conf;
   private final boolean authEnabled;
   private final SecretKeyHolder secretKeyHolder;
+  private final long registrationTimeoutMs;
 
   protected TransportClientFactory clientFactory;
   protected String appId;
@@ -60,10 +62,12 @@ public class ExternalShuffleClient extends ShuffleClient {
   public ExternalShuffleClient(
       TransportConf conf,
       SecretKeyHolder secretKeyHolder,
-      boolean authEnabled) {
+      boolean authEnabled,
+      long registrationTimeoutMs) {
     this.conf = conf;
     this.secretKeyHolder = secretKeyHolder;
     this.authEnabled = authEnabled;
+    this.registrationTimeoutMs = registrationTimeoutMs;
   }
 
   protected void checkInit() {
@@ -88,7 +92,11 @@ public class ExternalShuffleClient extends ShuffleClient {
       String execId,
       String[] blockIds,
       BlockFetchingListener listener,
+<<<<<<< HEAD
       TempShuffleFileManager tempShuffleFileManager) {
+=======
+      DownloadFileManager downloadFileManager) {
+>>>>>>> master
     checkInit();
     logger.debug("External shuffle fetch from {}:{} (executor id {})", host, port, execId);
     try {
@@ -96,7 +104,11 @@ public class ExternalShuffleClient extends ShuffleClient {
           (blockIds1, listener1) -> {
             TransportClient client = clientFactory.createClient(host, port);
             new OneForOneBlockFetcher(client, appId, execId,
+<<<<<<< HEAD
               blockIds1, listener1, conf, tempShuffleFileManager).start();
+=======
+              blockIds1, listener1, conf, downloadFileManager).start();
+>>>>>>> master
           };
 
       int maxRetries = conf.maxIORetries();
@@ -113,6 +125,12 @@ public class ExternalShuffleClient extends ShuffleClient {
         listener.onBlockFetchFailure(blockId, e);
       }
     }
+  }
+
+  @Override
+  public MetricSet shuffleMetrics() {
+    checkInit();
+    return clientFactory.getAllMetrics();
   }
 
   /**
@@ -132,7 +150,7 @@ public class ExternalShuffleClient extends ShuffleClient {
     checkInit();
     try (TransportClient client = clientFactory.createUnmanagedClient(host, port)) {
       ByteBuffer registerMessage = new RegisterExecutor(appId, execId, executorInfo).toByteBuffer();
-      client.sendRpcSync(registerMessage, 5000 /* timeoutMs */);
+      client.sendRpcSync(registerMessage, registrationTimeoutMs);
     }
   }
   /**
@@ -159,6 +177,10 @@ public class ExternalShuffleClient extends ShuffleClient {
 
   @Override
   public void close() {
-    clientFactory.close();
+    checkInit();
+    if (clientFactory != null) {
+      clientFactory.close();
+      clientFactory = null;
+    }
   }
 }

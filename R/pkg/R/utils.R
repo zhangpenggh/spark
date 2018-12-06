@@ -108,7 +108,6 @@ isRDD <- function(name, env) {
 #'
 #' @param key the object to be hashed
 #' @return the hash code as an integer
-#' @export
 #' @examples
 #'\dontrun{
 #' hashCode(1L) # 1
@@ -625,7 +624,7 @@ appendPartitionLengths <- function(x, other) {
     x <- lapplyPartition(x, appendLength)
     other <- lapplyPartition(other, appendLength)
   }
-  list (x, other)
+  list(x, other)
 }
 
 # Perform zip or cartesian between elements from two RDDs in each partition
@@ -657,7 +656,7 @@ mergePartitions <- function(rdd, zip) {
           keys <- list()
         }
         if (lengthOfValues > 1) {
-          values <- part[ (lengthOfKeys + 1) : (len - 1) ]
+          values <- part[(lengthOfKeys + 1) : (len - 1)]
         } else {
           values <- list()
         }
@@ -736,15 +735,6 @@ splitString <- function(input) {
   Filter(nzchar, unlist(strsplit(input, ",|\\s")))
 }
 
-convertToJSaveMode <- function(mode) {
- allModes <- c("append", "overwrite", "error", "ignore")
- if (!(mode %in% allModes)) {
-   stop('mode should be one of "append", "overwrite", "error", "ignore"')  # nolint
- }
- jmode <- callJStatic("org.apache.spark.sql.api.r.SQLUtils", "saveMode", mode)
- jmode
-}
-
 varargsToJProperties <- function(...) {
   pairs <- list(...)
   props <- newJObject("java.util.Properties")
@@ -756,7 +746,7 @@ varargsToJProperties <- function(...) {
   props
 }
 
-launchScript <- function(script, combinedArgs, wait = FALSE) {
+launchScript <- function(script, combinedArgs, wait = FALSE, stdout = "", stderr = "") {
   if (.Platform$OS.type == "windows") {
     scriptWithArgs <- paste(script, combinedArgs, sep = " ")
     # on Windows, intern = F seems to mean output to the console. (documentation on this is missing)
@@ -766,7 +756,7 @@ launchScript <- function(script, combinedArgs, wait = FALSE) {
     # stdout = F means discard output
     # stdout = "" means to its console (default)
     # Note that the console of this child process might not be the same as the running R process.
-    system2(script, combinedArgs, stdout = "", wait = wait)
+    system2(script, combinedArgs, stdout = stdout, wait = wait, stderr = stderr)
   }
 }
 
@@ -864,6 +854,14 @@ captureJVMException <- function(e, method) {
     # Extract the first message of JVM exception.
     first <- strsplit(msg[2], "\r?\n\tat")[[1]][1]
     stop(paste0(rmsg, "no such table - ", first), call. = FALSE)
+  } else if (any(grep("org.apache.spark.sql.catalyst.parser.ParseException: ", stacktrace))) {
+    msg <- strsplit(stacktrace, "org.apache.spark.sql.catalyst.parser.ParseException: ",
+                    fixed = TRUE)[[1]]
+    # Extract "Error in ..." message.
+    rmsg <- msg[1]
+    # Extract the first message of JVM exception.
+    first <- strsplit(msg[2], "\r?\n\tat")[[1]][1]
+    stop(paste0(rmsg, "parse error - ", first), call. = FALSE)
   } else {
     stop(stacktrace, call. = FALSE)
   }

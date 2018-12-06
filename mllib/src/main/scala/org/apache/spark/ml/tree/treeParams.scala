@@ -21,6 +21,7 @@ import java.util.Locale
 
 import scala.util.Try
 
+import org.apache.spark.annotation.Since
 import org.apache.spark.ml.PredictorParams
 import org.apache.spark.ml.param._
 import org.apache.spark.ml.param.shared._
@@ -320,6 +321,12 @@ private[ml] trait DecisionTreeRegressorParams extends DecisionTreeParams
   }
 }
 
+private[spark] object TreeEnsembleParams {
+  // These options should be lowercase.
+  final val supportedFeatureSubsetStrategies: Array[String] =
+    Array("auto", "all", "onethird", "sqrt", "log2").map(_.toLowerCase(Locale.ROOT))
+}
+
 /**
  * Parameters for Decision Tree-based ensemble algorithms.
  *
@@ -359,6 +366,7 @@ private[ml] trait TreeEnsembleParams extends DecisionTreeParams {
       oldImpurity: OldImpurity): OldStrategy = {
     super.getOldStrategy(categoricalFeatures, numClasses, oldAlgo, oldImpurity, getSubsamplingRate)
   }
+<<<<<<< HEAD
 }
 
 /**
@@ -391,6 +399,8 @@ private[ml] trait RandomForestParams extends TreeEnsembleParams {
 
   /** @group getParam */
   final def getNumTrees: Int = $(numTrees)
+=======
+>>>>>>> master
 
   /**
    * The number of features to consider for splits at each tree node.
@@ -420,10 +430,10 @@ private[ml] trait RandomForestParams extends TreeEnsembleParams {
    */
   final val featureSubsetStrategy: Param[String] = new Param[String](this, "featureSubsetStrategy",
     "The number of features to consider for splits at each tree node." +
-      s" Supported options: ${RandomForestParams.supportedFeatureSubsetStrategies.mkString(", ")}" +
+      s" Supported options: ${TreeEnsembleParams.supportedFeatureSubsetStrategies.mkString(", ")}" +
       s", (0.0-1.0], [1-n].",
     (value: String) =>
-      RandomForestParams.supportedFeatureSubsetStrategies.contains(
+      TreeEnsembleParams.supportedFeatureSubsetStrategies.contains(
         value.toLowerCase(Locale.ROOT))
       || Try(value.toInt).filter(_ > 0).isSuccess
       || Try(value.toDouble).filter(_ > 0).filter(_ <= 1.0).isSuccess)
@@ -431,7 +441,11 @@ private[ml] trait RandomForestParams extends TreeEnsembleParams {
   setDefault(featureSubsetStrategy -> "auto")
 
   /**
+<<<<<<< HEAD
    * @deprecated This method is deprecated and will be removed in 3.0.0.
+=======
+   * @deprecated This method is deprecated and will be removed in 3.0.0
+>>>>>>> master
    * @group setParam
    */
   @deprecated("This method is deprecated and will be removed in 3.0.0.", "2.1.0")
@@ -441,10 +455,38 @@ private[ml] trait RandomForestParams extends TreeEnsembleParams {
   final def getFeatureSubsetStrategy: String = $(featureSubsetStrategy).toLowerCase(Locale.ROOT)
 }
 
-private[spark] object RandomForestParams {
-  // These options should be lowercase.
-  final val supportedFeatureSubsetStrategies: Array[String] =
-    Array("auto", "all", "onethird", "sqrt", "log2").map(_.toLowerCase(Locale.ROOT))
+
+
+/**
+ * Parameters for Random Forest algorithms.
+ */
+private[ml] trait RandomForestParams extends TreeEnsembleParams {
+
+  /**
+   * Number of trees to train (>= 1).
+   * If 1, then no bootstrapping is used.  If > 1, then bootstrapping is done.
+   * TODO: Change to always do bootstrapping (simpler).  SPARK-7130
+   * (default = 20)
+   *
+   * Note: The reason that we cannot add this to both GBT and RF (i.e. in TreeEnsembleParams)
+   * is the param `maxIter` controls how many trees a GBT has. The semantics in the algorithms
+   * are a bit different.
+   * @group param
+   */
+  final val numTrees: IntParam = new IntParam(this, "numTrees", "Number of trees to train (>= 1)",
+    ParamValidators.gtEq(1))
+
+  setDefault(numTrees -> 20)
+
+  /**
+   * @deprecated This method is deprecated and will be removed in 3.0.0.
+   * @group setParam
+   */
+  @deprecated("This method is deprecated and will be removed in 3.0.0.", "2.1.0")
+  def setNumTrees(value: Int): this.type = set(numTrees, value)
+
+  /** @group getParam */
+  final def getNumTrees: Int = $(numTrees)
 }
 
 private[ml] trait RandomForestClassifierParams
@@ -458,18 +500,34 @@ private[ml] trait RandomForestRegressorParams
  *
  * Note: Marked as private and DeveloperApi since this may be made public in the future.
  */
-private[ml] trait GBTParams extends TreeEnsembleParams with HasMaxIter {
+private[ml] trait GBTParams extends TreeEnsembleParams with HasMaxIter with HasStepSize
+  with HasValidationIndicatorCol {
 
-  /* TODO: Add this doc when we add this param.  SPARK-7132
-   * Threshold for stopping early when runWithValidation is used.
-   * If the error rate on the validation input changes by less than the validationTol,
-   * then learning will stop early (before [[numIterations]]).
-   * This parameter is ignored when run is used.
-   * (default = 1e-5)
+  /**
+   * Threshold for stopping early when fit with validation is used.
+   * (This parameter is ignored when fit without validation is used.)
+   * The decision to stop early is decided based on this logic:
+   * If the current loss on the validation set is greater than 0.01, the diff
+   * of validation error is compared to relative tolerance which is
+   * validationTol * (current loss on the validation set).
+   * If the current loss on the validation set is less than or equal to 0.01,
+   * the diff of validation error is compared to absolute tolerance which is
+   * validationTol * 0.01.
    * @group param
+   * @see validationIndicatorCol
    */
-  // final val validationTol: DoubleParam = new DoubleParam(this, "validationTol", "")
-  // validationTol -> 1e-5
+  @Since("2.4.0")
+  final val validationTol: DoubleParam = new DoubleParam(this, "validationTol",
+    "Threshold for stopping early when fit with validation is used." +
+    "If the error rate on the validation input changes by less than the validationTol," +
+    "then learning will stop early (before `maxIter`)." +
+    "This parameter is ignored when fit without validation is used.",
+    ParamValidators.gtEq(0.0)
+  )
+
+  /** @group getParam */
+  @Since("2.4.0")
+  final def getValidationTol: Double = $(validationTol)
 
   /**
    * @deprecated This method is deprecated and will be removed in 3.0.0.
@@ -484,12 +542,9 @@ private[ml] trait GBTParams extends TreeEnsembleParams with HasMaxIter {
    * (default = 0.1)
    * @group param
    */
-  final val stepSize: DoubleParam = new DoubleParam(this, "stepSize", "Step size " +
+  final override val stepSize: DoubleParam = new DoubleParam(this, "stepSize", "Step size " +
     "(a.k.a. learning rate) in interval (0, 1] for shrinking the contribution of each estimator.",
     ParamValidators.inRange(0, 1, lowerInclusive = false, upperInclusive = true))
-
-  /** @group getParam */
-  final def getStepSize: Double = $(stepSize)
 
   /**
    * @deprecated This method is deprecated and will be removed in 3.0.0.
@@ -498,7 +553,9 @@ private[ml] trait GBTParams extends TreeEnsembleParams with HasMaxIter {
   @deprecated("This method is deprecated and will be removed in 3.0.0.", "2.1.0")
   def setStepSize(value: Double): this.type = set(stepSize, value)
 
-  setDefault(maxIter -> 20, stepSize -> 0.1)
+  setDefault(maxIter -> 20, stepSize -> 0.1, validationTol -> 0.01)
+
+  setDefault(featureSubsetStrategy -> "all")
 
   /** (private[ml]) Create a BoostingStrategy instance to use with the old API. */
   private[ml] def getOldBoostingStrategy(
@@ -506,7 +563,7 @@ private[ml] trait GBTParams extends TreeEnsembleParams with HasMaxIter {
       oldAlgo: OldAlgo.Algo): OldBoostingStrategy = {
     val strategy = super.getOldStrategy(categoricalFeatures, numClasses = 2, oldAlgo, OldVariance)
     // NOTE: The old API does not support "seed" so we ignore it.
-    new OldBoostingStrategy(strategy, getOldLossType, getMaxIter, getStepSize)
+    new OldBoostingStrategy(strategy, getOldLossType, getMaxIter, getStepSize, getValidationTol)
   }
 
   /** Get old Gradient Boosting Loss type */
@@ -578,7 +635,11 @@ private[ml] trait GBTRegressorParams extends GBTParams with TreeRegressorParams 
 
   /** (private[ml]) Convert new loss to old loss. */
   override private[ml] def getOldLossType: OldLoss = {
-    getLossType match {
+    convertToOldLossType(getLossType)
+  }
+
+  private[ml] def convertToOldLossType(loss: String): OldLoss = {
+    loss match {
       case "squared" => OldSquaredError
       case "absolute" => OldAbsoluteError
       case _ =>

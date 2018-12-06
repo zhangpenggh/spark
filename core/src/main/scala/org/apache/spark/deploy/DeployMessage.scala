@@ -54,7 +54,7 @@ private[deploy] object DeployMessages {
       workerWebUiUrl: String,
       masterAddress: RpcAddress)
     extends DeployMessage {
-    Utils.checkHost(host, "Required hostname")
+    Utils.checkHost(host)
     assert (port > 0)
   }
 
@@ -150,13 +150,15 @@ private[deploy] object DeployMessages {
 
   // TODO(matei): replace hostPort with host
   case class ExecutorAdded(id: Int, workerId: String, hostPort: String, cores: Int, memory: Int) {
-    Utils.checkHostPort(hostPort, "Required hostport")
+    Utils.checkHostPort(hostPort)
   }
 
   case class ExecutorUpdated(id: Int, state: ExecutorState, message: Option[String],
     exitStatus: Option[Int], workerLost: Boolean)
 
   case class ApplicationRemoved(message: String)
+
+  case class WorkerRemoved(id: String, host: String, message: String)
 
   // DriverClient <-> Master
 
@@ -202,7 +204,7 @@ private[deploy] object DeployMessages {
       completedDrivers: Array[DriverInfo],
       status: MasterState) {
 
-    Utils.checkHost(host, "Required hostname")
+    Utils.checkHost(host)
     assert (port > 0)
 
     def uri: String = "spark://" + host + ":" + port
@@ -220,7 +222,7 @@ private[deploy] object DeployMessages {
     drivers: List[DriverRunner], finishedDrivers: List[DriverRunner], masterUrl: String,
     cores: Int, memory: Int, coresUsed: Int, memoryUsed: Int, masterWebUiUrl: String) {
 
-    Utils.checkHost(host, "Required hostname")
+    Utils.checkHost(host)
     assert (port > 0)
   }
 

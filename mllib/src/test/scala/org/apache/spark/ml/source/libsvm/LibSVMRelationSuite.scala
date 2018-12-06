@@ -38,15 +38,27 @@ class LibSVMRelationSuite extends SparkFunSuite with MLlibTestSparkContext {
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    val lines =
+    val lines0 =
       """
         |1 1:1.0 3:2.0 5:3.0
         |0
+      """.stripMargin
+    val lines1 =
+      """
         |0 2:4.0 4:5.0 6:6.0
       """.stripMargin
     val dir = Utils.createTempDir()
+<<<<<<< HEAD
     val file = new File(dir, "part-00000")
     Files.write(lines, file, StandardCharsets.UTF_8)
+=======
+    val succ = new File(dir, "_SUCCESS")
+    val file0 = new File(dir, "part-00000")
+    val file1 = new File(dir, "part-00001")
+    Files.write("", succ, StandardCharsets.UTF_8)
+    Files.write(lines0, file0, StandardCharsets.UTF_8)
+    Files.write(lines1, file1, StandardCharsets.UTF_8)
+>>>>>>> master
     path = dir.getPath
   }
 
@@ -169,7 +181,9 @@ class LibSVMRelationSuite extends SparkFunSuite with MLlibTestSparkContext {
 
   test("create libsvmTable table without schema and path") {
     try {
-      val e = intercept[IOException](spark.sql("CREATE TABLE libsvmTable USING libsvm"))
+      val e = intercept[IllegalArgumentException] {
+        spark.sql("CREATE TABLE libsvmTable USING libsvm")
+      }
       assert(e.getMessage.contains("No input path specified for libsvm data"))
     } finally {
       spark.sql("DROP TABLE IF EXISTS libsvmTable")

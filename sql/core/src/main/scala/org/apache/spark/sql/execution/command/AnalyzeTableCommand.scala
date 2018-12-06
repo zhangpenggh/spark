@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution.command
 
+<<<<<<< HEAD
 import java.net.URI
 
 import scala.util.control.NonFatal
@@ -24,10 +25,11 @@ import scala.util.control.NonFatal
 import org.apache.hadoop.fs.{FileSystem, Path}
 
 import org.apache.spark.internal.Logging
+=======
+>>>>>>> master
 import org.apache.spark.sql.{AnalysisException, Row, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.catalog.{CatalogStatistics, CatalogTable, CatalogTableType}
-import org.apache.spark.sql.internal.SessionState
+import org.apache.spark.sql.catalyst.catalog.CatalogTableType
 
 
 /**
@@ -45,8 +47,8 @@ case class AnalyzeTableCommand(
     if (tableMeta.tableType == CatalogTableType.VIEW) {
       throw new AnalysisException("ANALYZE TABLE is not supported on views.")
     }
-    val newTotalSize = AnalyzeTableCommand.calculateTotalSize(sessionState, tableMeta)
 
+<<<<<<< HEAD
     val oldTotalSize = tableMeta.stats.map(_.sizeInBytes.toLong).getOrElse(-1L)
     val oldRowCount = tableMeta.stats.flatMap(_.rowCount.map(_.toLong)).getOrElse(-1L)
     var newStats: Option[CatalogStatistics] = None
@@ -68,17 +70,24 @@ case class AnalyzeTableCommand(
         }
       }
     }
+=======
+    // Compute stats for the whole table
+    val newTotalSize = CommandUtils.calculateTotalSize(sparkSession, tableMeta)
+    val newRowCount =
+      if (noscan) None else Some(BigInt(sparkSession.table(tableIdentWithDB).count()))
+
+>>>>>>> master
     // Update the metastore if the above statistics of the table are different from those
     // recorded in the metastore.
+    val newStats = CommandUtils.compareAndGetNewStats(tableMeta.stats, newTotalSize, newRowCount)
     if (newStats.isDefined) {
-      sessionState.catalog.alterTable(tableMeta.copy(stats = newStats))
-      // Refresh the cached data source table in the catalog.
-      sessionState.catalog.refreshTable(tableIdentWithDB)
+      sessionState.catalog.alterTableStats(tableIdentWithDB, newStats)
     }
 
     Seq.empty[Row]
   }
 }
+<<<<<<< HEAD
 
 object AnalyzeTableCommand extends Logging {
 
@@ -141,3 +150,5 @@ object AnalyzeTableCommand extends Logging {
     }.getOrElse(0L)
   }
 }
+=======
+>>>>>>> master

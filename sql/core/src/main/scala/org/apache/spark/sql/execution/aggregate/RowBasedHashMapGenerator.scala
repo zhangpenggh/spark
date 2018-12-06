@@ -18,8 +18,8 @@
 package org.apache.spark.sql.execution.aggregate
 
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext}
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodeGenerator}
 import org.apache.spark.sql.types._
 
 /**
@@ -39,11 +39,13 @@ class RowBasedHashMapGenerator(
     aggregateExpressions: Seq[AggregateExpression],
     generatedClassName: String,
     groupingKeySchema: StructType,
-    bufferSchema: StructType)
+    bufferSchema: StructType,
+    bitMaxCapacity: Int)
   extends HashMapGenerator (ctx, aggregateExpressions, generatedClassName,
     groupingKeySchema, bufferSchema) {
 
   override protected def initializeAggregateHashMap(): String = {
+<<<<<<< HEAD
     val generatedKeySchema: String =
       s"new org.apache.spark.sql.types.StructType()" +
         groupingKeySchema.map { key =>
@@ -69,17 +71,19 @@ class RowBasedHashMapGenerator(
               s""".add($keyName, org.apache.spark.sql.types.DataTypes.${key.dataType})"""
           }
         }.mkString("\n").concat(";")
+=======
+    val keySchema = ctx.addReferenceObj("keySchemaTerm", groupingKeySchema)
+    val valueSchema = ctx.addReferenceObj("valueSchemaTerm", bufferSchema)
+>>>>>>> master
 
     s"""
        |  private org.apache.spark.sql.catalyst.expressions.RowBasedKeyValueBatch batch;
        |  private int[] buckets;
-       |  private int capacity = 1 << 16;
+       |  private int capacity = 1 << $bitMaxCapacity;
        |  private double loadFactor = 0.5;
        |  private int numBuckets = (int) (capacity / loadFactor);
        |  private int maxSteps = 2;
        |  private int numRows = 0;
-       |  private org.apache.spark.sql.types.StructType keySchema = $generatedKeySchema
-       |  private org.apache.spark.sql.types.StructType valueSchema = $generatedValueSchema
        |  private Object emptyVBase;
        |  private long emptyVOff;
        |  private int emptyVLen;
@@ -90,9 +94,9 @@ class RowBasedHashMapGenerator(
        |    org.apache.spark.memory.TaskMemoryManager taskMemoryManager,
        |    InternalRow emptyAggregationBuffer) {
        |    batch = org.apache.spark.sql.catalyst.expressions.RowBasedKeyValueBatch
-       |      .allocate(keySchema, valueSchema, taskMemoryManager, capacity);
+       |      .allocate($keySchema, $valueSchema, taskMemoryManager, capacity);
        |
-       |    final UnsafeProjection valueProjection = UnsafeProjection.create(valueSchema);
+       |    final UnsafeProjection valueProjection = UnsafeProjection.create($valueSchema);
        |    final byte[] emptyBuffer = valueProjection.apply(emptyAggregationBuffer).getBytes();
        |
        |    emptyVBase = emptyBuffer;
@@ -114,7 +118,7 @@ class RowBasedHashMapGenerator(
 
     def genEqualsForKeys(groupingKeys: Seq[Buffer]): String = {
       groupingKeys.zipWithIndex.map { case (key: Buffer, ordinal: Int) =>
-        s"""(${ctx.genEqual(key.dataType, ctx.getValue("row",
+        s"""(${ctx.genEqual(key.dataType, CodeGenerator.getValue("row",
           key.dataType, ordinal.toString()), key.name)})"""
       }.mkString(" && ")
     }
@@ -147,7 +151,7 @@ class RowBasedHashMapGenerator(
         case t: DecimalType =>
           s"agg_rowWriter.write(${ordinal}, ${key.name}, ${t.precision}, ${t.scale})"
         case t: DataType =>
-          if (!t.isInstanceOf[StringType] && !ctx.isPrimitiveType(t)) {
+          if (!t.isInstanceOf[StringType] && !CodeGenerator.isPrimitiveType(t)) {
             throw new IllegalArgumentException(s"cannot generate code for unsupported type: $t")
           }
           s"agg_rowWriter.write(${ordinal}, ${key.name})"
@@ -165,18 +169,14 @@ class RowBasedHashMapGenerator(
        |    if (buckets[idx] == -1) {
        |      if (numRows < capacity && !isBatchFull) {
        |        // creating the unsafe for new entry
-       |        UnsafeRow agg_result = new UnsafeRow(${groupingKeySchema.length});
-       |        org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder agg_holder
-       |          = new org.apache.spark.sql.catalyst.expressions.codegen.BufferHolder(agg_result,
-       |            ${numVarLenFields * 32});
        |        org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter agg_rowWriter
        |          = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(
-       |              agg_holder,
-       |              ${groupingKeySchema.length});
-       |        agg_holder.reset(); //TODO: investigate if reset or zeroout are actually needed
+       |              ${groupingKeySchema.length}, ${numVarLenFields * 32});
+       |        agg_rowWriter.reset(); //TODO: investigate if reset or zeroout are actually needed
        |        agg_rowWriter.zeroOutNullBytes();
        |        ${createUnsafeRowForKey};
-       |        agg_result.setTotalSize(agg_holder.totalSize());
+       |        org.apache.spark.sql.catalyst.expressions.UnsafeRow agg_result
+       |          = agg_rowWriter.getRow();
        |        Object kbase = agg_result.getBaseObject();
        |        long koff = agg_result.getBaseOffset();
        |        int klen = agg_result.getSizeInBytes();

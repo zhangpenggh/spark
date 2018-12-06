@@ -28,7 +28,7 @@ import org.glassfish.jersey.server.ServerProperties
 import org.glassfish.jersey.servlet.ServletContainer
 
 import org.apache.spark.SecurityManager
-import org.apache.spark.ui.SparkUI
+import org.apache.spark.ui.{SparkUI, UIUtils}
 
 /**
  * Main entry point for serving spark application metrics as json, using JAX-RS.
@@ -44,11 +44,10 @@ import org.apache.spark.ui.SparkUI
 private[v1] class ApiRootResource extends ApiRequestContext {
 
   @Path("applications")
-  def getApplicationList(): ApplicationListResource = {
-    new ApplicationListResource(uiRoot)
-  }
+  def applicationList(): Class[ApplicationListResource] = classOf[ApplicationListResource]
 
   @Path("applications/{appId}")
+<<<<<<< HEAD
   def getApplication(): OneApplicationResource = {
     new OneApplicationResource(uiRoot)
   }
@@ -206,27 +205,14 @@ private[v1] class ApiRootResource extends ApiRequestContext {
       new EventLogDownloadResource(uiRoot, appId, Some(attemptId))
     }
   }
+=======
+  def application(): Class[OneApplicationResource] = classOf[OneApplicationResource]
+>>>>>>> master
 
+  @GET
   @Path("version")
-  def getVersion(): VersionResource = {
-    new VersionResource(uiRoot)
-  }
+  def version(): VersionInfo = new VersionInfo(org.apache.spark.SPARK_VERSION)
 
-  @Path("applications/{appId}/environment")
-  def getEnvironment(@PathParam("appId") appId: String): ApplicationEnvironmentResource = {
-    withSparkUI(appId, None) { ui =>
-      new ApplicationEnvironmentResource(ui)
-    }
-  }
-
-  @Path("applications/{appId}/{attemptId}/environment")
-  def getEnvironment(
-      @PathParam("appId") appId: String,
-      @PathParam("attemptId") attemptId: String): ApplicationEnvironmentResource = {
-    withSparkUI(appId, Some(attemptId)) { ui =>
-      new ApplicationEnvironmentResource(ui)
-    }
-  }
 }
 
 private[spark] object ApiRootResource {
@@ -248,7 +234,13 @@ private[spark] object ApiRootResource {
  * interface needed for them all to expose application info as json.
  */
 private[spark] trait UIRoot {
-  def getSparkUI(appKey: String): Option[SparkUI]
+  /**
+   * Runs some code with the current SparkUI instance for the app / attempt.
+   *
+   * @throws NoSuchElementException If the app / attempt pair does not exist.
+   */
+  def withSparkUI[T](appId: String, attemptId: Option[String])(fn: SparkUI => T): T
+
   def getApplicationInfoList: Iterator[ApplicationInfo]
   def getApplicationInfo(appId: String): Option[ApplicationInfo]
 
@@ -287,50 +279,47 @@ private[v1] trait ApiRequestContext {
 
   def uiRoot: UIRoot = UIRootFromServletContext.getUiRoot(servletContext)
 
+}
 
-  /**
-   * Get the spark UI with the given appID, and apply a function
-   * to it.  If there is no such app, throw an appropriate exception
-   */
-  def withSparkUI[T](appId: String, attemptId: Option[String])(f: SparkUI => T): T = {
-    val appKey = attemptId.map(appId + "/" + _).getOrElse(appId)
-    uiRoot.getSparkUI(appKey) match {
-      case Some(ui) =>
+/**
+ * Base class for resource handlers that use app-specific data. Abstracts away dealing with
+ * application and attempt IDs, and finding the app's UI.
+ */
+private[v1] trait BaseAppResource extends ApiRequestContext {
+
+  @PathParam("appId") protected[this] var appId: String = _
+  @PathParam("attemptId") protected[this] var attemptId: String = _
+
+  protected def withUI[T](fn: SparkUI => T): T = {
+    try {
+      uiRoot.withSparkUI(appId, Option(attemptId)) { ui =>
         val user = httpRequest.getRemoteUser()
         if (!ui.securityManager.checkUIViewPermissions(user)) {
           throw new ForbiddenException(raw"""user "$user" is not authorized""")
         }
-        f(ui)
-      case None => throw new NotFoundException("no such app: " + appId)
+        fn(ui)
+      }
+    } catch {
+      case _: NoSuchElementException =>
+        val appKey = Option(attemptId).map(appId + "/" + _).getOrElse(appId)
+        throw new NotFoundException(s"no such app: $appKey")
     }
   }
 }
 
 private[v1] class ForbiddenException(msg: String) extends WebApplicationException(
-  Response.status(Response.Status.FORBIDDEN).entity(msg).build())
+    UIUtils.buildErrorResponse(Response.Status.FORBIDDEN, msg))
 
 private[v1] class NotFoundException(msg: String) extends WebApplicationException(
-  new NoSuchElementException(msg),
-    Response
-      .status(Response.Status.NOT_FOUND)
-      .entity(ErrorWrapper(msg))
-      .build()
-)
+    UIUtils.buildErrorResponse(Response.Status.NOT_FOUND, msg))
+
+private[v1] class ServiceUnavailable(msg: String) extends WebApplicationException(
+    UIUtils.buildErrorResponse(Response.Status.SERVICE_UNAVAILABLE, msg))
 
 private[v1] class BadParameterException(msg: String) extends WebApplicationException(
-  new IllegalArgumentException(msg),
-  Response
-    .status(Response.Status.BAD_REQUEST)
-    .entity(ErrorWrapper(msg))
-    .build()
-) {
+    UIUtils.buildErrorResponse(Response.Status.BAD_REQUEST, msg)) {
   def this(param: String, exp: String, actual: String) = {
     this(raw"""Bad value for parameter "$param".  Expected a $exp, got "$actual"""")
   }
 }
 
-/**
- * Signal to JacksonMessageWriter to not convert the message into json (which would result in an
- * extra set of quotes).
- */
-private[v1] case class ErrorWrapper(s: String)

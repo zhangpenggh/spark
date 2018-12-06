@@ -103,7 +103,7 @@ test_that("cleanClosure on R functions", {
   expect_true("l" %in% ls(env))
   expect_true("f" %in% ls(env))
   expect_equal(get("l", envir = env, inherits = FALSE), l)
-  # "y" should be in the environemnt of g.
+  # "y" should be in the environment of g.
   newG <- get("g", envir = env, inherits = FALSE)
   env <- environment(newG)
   expect_equal(length(ls(env)), 1)
@@ -134,7 +134,7 @@ test_that("cleanClosure on R functions", {
 
   # Test for broadcast variables.
   a <- matrix(nrow = 10, ncol = 10, data = rnorm(100))
-  aBroadcast <- broadcast(sc, a)
+  aBroadcast <- broadcastRDD(sc, a)
   normMultiply <- function(x) { norm(aBroadcast$value) * x }
   newnormMultiply <- SparkR:::cleanClosure(normMultiply)
   env <- environment(newnormMultiply)
@@ -158,22 +158,14 @@ test_that("varargsToJProperties", {
   expect_equal(callJMethod(jprops, "size"), 0L)
 })
 
-test_that("convertToJSaveMode", {
-  s <- convertToJSaveMode("error")
-  expect_true(class(s) == "jobj")
-  expect_match(capture.output(print.jobj(s)), "Java ref type org.apache.spark.sql.SaveMode id ")
-  expect_error(convertToJSaveMode("foo"),
-    'mode should be one of "append", "overwrite", "error", "ignore"') #nolint
-})
-
 test_that("captureJVMException", {
-  method <- "getSQLDataType"
+  method <- "createStructField"
   expect_error(tryCatch(callJStatic("org.apache.spark.sql.api.r.SQLUtils", method,
-                                    "unknown"),
+                                    "col", "unknown", TRUE),
                         error = function(e) {
                           captureJVMException(e, method)
                         }),
-               "Error in getSQLDataType : illegal argument - Invalid type unknown")
+               "parse error - .*DataType unknown.*not supported.")
 })
 
 test_that("hashCode", {

@@ -216,8 +216,8 @@ class InMemoryCatalog(
       } else {
         tableDefinition
       }
-
-      catalog(db).tables.put(table, new TableDesc(tableWithLocation))
+      val tableProp = tableWithLocation.properties.filter(_._1 != "comment")
+      catalog(db).tables.put(table, new TableDesc(tableWithLocation.copy(properties = tableProp)))
     }
   }
 
@@ -264,7 +264,11 @@ class InMemoryCatalog(
     }
   }
 
+<<<<<<< HEAD
   override protected def doRenameTable(
+=======
+  override def renameTable(
+>>>>>>> master
       db: String,
       oldName: String,
       newName: String): Unit = synchronized {
@@ -298,7 +302,9 @@ class InMemoryCatalog(
     assert(tableDefinition.identifier.database.isDefined)
     val db = tableDefinition.identifier.database.get
     requireTableExists(db, tableDefinition.identifier.table)
-    catalog(db).tables(tableDefinition.identifier.table).table = tableDefinition
+    val updatedProperties = tableDefinition.properties.filter(kv => kv._1 != "comment")
+    val newTableDefinition = tableDefinition.copy(properties = updatedProperties)
+    catalog(db).tables(tableDefinition.identifier.table).table = newTableDefinition
   }
 
   override def alterTableDataSchema(
@@ -311,11 +317,23 @@ class InMemoryCatalog(
     catalog(db).tables(table).table = origTable.copy(schema = newSchema)
   }
 
+  override def alterTableStats(
+      db: String,
+      table: String,
+      stats: Option[CatalogStatistics]): Unit = synchronized {
+    requireTableExists(db, table)
+    val origTable = catalog(db).tables(table).table
+    catalog(db).tables(table).table = origTable.copy(stats = stats)
+  }
+
+<<<<<<< HEAD
+=======
   override def getTable(db: String, table: String): CatalogTable = synchronized {
     requireTableExists(db, table)
     catalog(db).tables(table).table
   }
 
+>>>>>>> master
   override def tableExists(db: String, table: String): Boolean = synchronized {
     requireDbExists(db)
     catalog(db).tables.contains(table)
@@ -564,7 +582,17 @@ class InMemoryCatalog(
     catalog(db).functions.remove(funcName)
   }
 
+<<<<<<< HEAD
   override protected def doRenameFunction(
+=======
+  override def alterFunction(db: String, func: CatalogFunction): Unit = synchronized {
+    requireDbExists(db)
+    requireFunctionExists(db, func.identifier.funcName)
+    catalog(db).functions.put(func.identifier.funcName, func)
+  }
+
+  override def renameFunction(
+>>>>>>> master
       db: String,
       oldName: String,
       newName: String): Unit = synchronized {

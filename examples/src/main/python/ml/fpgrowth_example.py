@@ -15,16 +15,26 @@
 # limitations under the License.
 #
 
+<<<<<<< HEAD
 # $example on$
 from pyspark.ml.fpm import FPGrowth
 # $example off$
 from pyspark.sql import SparkSession
 
+=======
+>>>>>>> master
 """
 An example demonstrating FPGrowth.
 Run with:
   bin/spark-submit examples/src/main/python/ml/fpgrowth_example.py
 """
+<<<<<<< HEAD
+=======
+# $example on$
+from pyspark.ml.fpm import FPGrowth
+# $example off$
+from pyspark.sql import SparkSession
+>>>>>>> master
 
 if __name__ == "__main__":
     spark = SparkSession\

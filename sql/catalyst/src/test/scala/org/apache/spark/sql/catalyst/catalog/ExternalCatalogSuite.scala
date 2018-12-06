@@ -246,11 +246,28 @@ abstract class ExternalCatalogSuite extends SparkFunSuite with BeforeAndAfterEac
   test("alter table schema") {
     val catalog = newBasicCatalog()
     val newDataSchema = StructType(Seq(
+<<<<<<< HEAD
       StructField("new_field_1", IntegerType),
+=======
+      StructField("col1", IntegerType),
+>>>>>>> master
       StructField("new_field_2", StringType)))
     catalog.alterTableDataSchema("db2", "tbl1", newDataSchema)
     val newTbl1 = catalog.getTable("db2", "tbl1")
     assert(newTbl1.dataSchema == newDataSchema)
+<<<<<<< HEAD
+=======
+  }
+
+  test("alter table stats") {
+    val catalog = newBasicCatalog()
+    val oldTableStats = catalog.getTable("db2", "tbl1").stats
+    assert(oldTableStats.isEmpty)
+    val newStats = CatalogStatistics(sizeInBytes = 1)
+    catalog.alterTableStats("db2", "tbl1", Some(newStats))
+    val newTableStats = catalog.getTable("db2", "tbl1").stats
+    assert(newTableStats.get == newStats)
+>>>>>>> master
   }
 
   test("get table") {
@@ -752,6 +769,14 @@ abstract class ExternalCatalogSuite extends SparkFunSuite with BeforeAndAfterEac
     }
   }
 
+  test("alter function") {
+    val catalog = newBasicCatalog()
+    assert(catalog.getFunction("db2", "func1").className == funcClass)
+    val myNewFunc = catalog.getFunction("db2", "func1").copy(className = newFuncClass)
+    catalog.alterFunction("db2", myNewFunc)
+    assert(catalog.getFunction("db2", "func1").className == newFuncClass)
+  }
+
   test("list functions") {
     val catalog = newBasicCatalog()
     catalog.createFunction("db2", newFunc("func2"))
@@ -916,6 +941,7 @@ abstract class CatalogTestUtils {
   lazy val partWithEmptyValue =
     CatalogTablePartition(Map("a" -> "3", "b" -> ""), storageFormat)
   lazy val funcClass = "org.apache.spark.myFunc"
+  lazy val newFuncClass = "org.apache.spark.myNewFunc"
 
   /**
    * Creates a basic catalog, with the following structure:

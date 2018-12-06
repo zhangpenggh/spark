@@ -44,19 +44,7 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
   // TODO: Move the planner an optimizer into here from SessionState.
   protected def planner = sparkSession.sessionState.planner
 
-  def assertAnalyzed(): Unit = {
-    // Analyzer is invoked outside the try block to avoid calling it again from within the
-    // catch block below.
-    analyzed
-    try {
-      sparkSession.sessionState.analyzer.checkAnalysis(analyzed)
-    } catch {
-      case e: AnalysisException =>
-        val ae = new AnalysisException(e.message, e.line, e.startPosition, Option(analyzed))
-        ae.setStackTrace(e.getStackTrace)
-        throw ae
-    }
-  }
+  def assertAnalyzed(): Unit = analyzed
 
   def assertSupported(): Unit = {
     if (sparkSession.sessionState.conf.isUnsupportedOperationCheckEnabled) {
@@ -66,7 +54,7 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
 
   lazy val analyzed: LogicalPlan = {
     SparkSession.setActiveSession(sparkSession)
-    sparkSession.sessionState.analyzer.execute(logical)
+    sparkSession.sessionState.analyzer.executeAndCheck(logical)
   }
 
   lazy val withCachedData: LogicalPlan = {
@@ -101,7 +89,6 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
 
   /** A sequence of rules that will be applied in order to the physical plan before execution. */
   protected def preparations: Seq[Rule[SparkPlan]] = Seq(
-    python.ExtractPythonUDFs,
     PlanSubqueries(sparkSession),
     EnsureRequirements(sparkSession.sessionState.conf),
     CollapseCodegenStages(sparkSession.sessionState.conf),
@@ -113,7 +100,8 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
 
 
   /**
-   * Returns the result as a hive compatible sequence of strings. This is for testing only.
+   * Returns the result as a hive compatible sequence of strings. This is used in tests and
+   * `SparkSQLDriver` for CLI applications.
    */
   def hiveResultString(): Seq[String] = executedPlan match {
     case ExecutedCommandExec(desc: DescribeTableCommand) =>
@@ -154,7 +142,7 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
     def toHiveStructString(a: (Any, DataType)): String = a match {
       case (struct: Row, StructType(fields)) =>
         struct.toSeq.zip(fields).map {
-          case (v, t) => s""""${t.name}":${toHiveStructString(v, t.dataType)}"""
+          case (v, t) => s""""${t.name}":${toHiveStructString((v, t.dataType))}"""
         }.mkString("{", ",", "}")
       case (seq: Seq[_], ArrayType(typ, _)) =>
         seq.map(v => (v, typ)).map(toHiveStructString).mkString("[", ",", "]")
@@ -166,13 +154,14 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
       case (null, _) => "null"
       case (s: String, StringType) => "\"" + s + "\""
       case (decimal, DecimalType()) => decimal.toString
+      case (interval, CalendarIntervalType) => interval.toString
       case (other, tpe) if primitiveTypes contains tpe => other.toString
     }
 
     a match {
       case (struct: Row, StructType(fields)) =>
         struct.toSeq.zip(fields).map {
-          case (v, t) => s""""${t.name}":${toHiveStructString(v, t.dataType)}"""
+          case (v, t) => s""""${t.name}":${toHiveStructString((v, t.dataType))}"""
         }.mkString("{", ",", "}")
       case (seq: Seq[_], ArrayType(typ, _)) =>
         seq.map(v => (v, typ)).map(toHiveStructString).mkString("[", ",", "]")
@@ -189,21 +178,18 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
           DateTimeUtils.getTimeZone(sparkSession.sessionState.conf.sessionLocalTimeZone))
       case (bin: Array[Byte], BinaryType) => new String(bin, StandardCharsets.UTF_8)
       case (decimal: java.math.BigDecimal, DecimalType()) => formatDecimal(decimal)
+      case (interval, CalendarIntervalType) => interval.toString
       case (other, tpe) if primitiveTypes.contains(tpe) => other.toString
     }
   }
 
-  def simpleString: String = {
+  def simpleString: String = withRedaction {
     s"""== Physical Plan ==
        |${stringOrError(executedPlan.treeString(verbose = false))}
       """.stripMargin.trim
   }
 
-  override def toString: String = completeString(appendStats = false)
-
-  def toStringWithStats: String = completeString(appendStats = true)
-
-  private def completeString(appendStats: Boolean): String = {
+  override def toString: String = withRedaction {
     def output = Utils.truncatedString(
       analyzed.output.map(o => s"${o.name}: ${o.dataType.simpleString}"), ", ")
     val analyzedPlan = Seq(
@@ -211,23 +197,34 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
       stringOrError(analyzed.treeString(verbose = true))
     ).filter(_.nonEmpty).mkString("\n")
 
-    val optimizedPlanString = if (appendStats) {
-      // trigger to compute stats for logical plans
-      optimizedPlan.stats(sparkSession.sessionState.conf)
-      optimizedPlan.treeString(verbose = true, addSuffix = true)
-    } else {
-      optimizedPlan.treeString(verbose = true)
-    }
-
     s"""== Parsed Logical Plan ==
        |${stringOrError(logical.treeString(verbose = true))}
        |== Analyzed Logical Plan ==
        |$analyzedPlan
        |== Optimized Logical Plan ==
-       |${stringOrError(optimizedPlanString)}
+       |${stringOrError(optimizedPlan.treeString(verbose = true))}
        |== Physical Plan ==
        |${stringOrError(executedPlan.treeString(verbose = true))}
     """.stripMargin.trim
+  }
+
+  def stringWithStats: String = withRedaction {
+    // trigger to compute stats for logical plans
+    optimizedPlan.stats
+
+    // only show optimized logical plan and physical plan
+    s"""== Optimized Logical Plan ==
+        |${stringOrError(optimizedPlan.treeString(verbose = true, addSuffix = true))}
+        |== Physical Plan ==
+        |${stringOrError(executedPlan.treeString(verbose = true))}
+    """.stripMargin.trim
+  }
+
+  /**
+   * Redact the sensitive information in the given string.
+   */
+  private def withRedaction(message: String): String = {
+    Utils.redact(sparkSession.sessionState.conf.stringRedactionPattern, message)
   }
 
   /** A special namespace for commands that can be used to debug query execution. */
@@ -243,6 +240,15 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
       // scalastyle:off println
       println(org.apache.spark.sql.execution.debug.codegenString(executedPlan))
       // scalastyle:on println
+    }
+
+    /**
+     * Get WholeStageCodegenExec subtrees and the codegen in a query plan
+     *
+     * @return Sequence of WholeStageCodegen subtrees and corresponding codegen
+     */
+    def codegenToSeq(): Seq[(String, String)] = {
+      org.apache.spark.sql.execution.debug.codegenStringSeq(executedPlan)
     }
   }
 }

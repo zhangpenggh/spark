@@ -20,6 +20,10 @@ package org.apache.spark.sql.catalyst.analysis
 import java.util.Locale
 
 import org.apache.spark.sql.AnalysisException
+<<<<<<< HEAD
+=======
+import org.apache.spark.sql.catalyst.expressions.IntegerLiteral
+>>>>>>> master
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.CurrentOrigin
@@ -58,9 +62,15 @@ object ResolveHints {
       val newNode = CurrentOrigin.withOrigin(plan.origin) {
         plan match {
           case u: UnresolvedRelation if toBroadcast.exists(resolver(_, u.tableIdentifier.table)) =>
+<<<<<<< HEAD
             ResolvedHint(plan, HintInfo(isBroadcastable = Option(true)))
           case r: SubqueryAlias if toBroadcast.exists(resolver(_, r.alias)) =>
             ResolvedHint(plan, HintInfo(isBroadcastable = Option(true)))
+=======
+            ResolvedHint(plan, HintInfo(broadcast = true))
+          case r: SubqueryAlias if toBroadcast.exists(resolver(_, r.alias)) =>
+            ResolvedHint(plan, HintInfo(broadcast = true))
+>>>>>>> master
 
           case _: ResolvedHint | _: View | _: With | _: SubqueryAlias =>
             // Don't traverse down these nodes.
@@ -85,11 +95,19 @@ object ResolveHints {
       }
     }
 
+<<<<<<< HEAD
     def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
       case h: UnresolvedHint if BROADCAST_HINT_NAMES.contains(h.name.toUpperCase(Locale.ROOT)) =>
         if (h.parameters.isEmpty) {
           // If there is no table alias specified, turn the entire subtree into a BroadcastHint.
           ResolvedHint(h.child, HintInfo(isBroadcastable = Option(true)))
+=======
+    def apply(plan: LogicalPlan): LogicalPlan = plan resolveOperatorsUp {
+      case h: UnresolvedHint if BROADCAST_HINT_NAMES.contains(h.name.toUpperCase(Locale.ROOT)) =>
+        if (h.parameters.isEmpty) {
+          // If there is no table alias specified, turn the entire subtree into a BroadcastHint.
+          ResolvedHint(h.child, HintInfo(broadcast = true))
+>>>>>>> master
         } else {
           // Otherwise, find within the subtree query plans that should be broadcasted.
           applyBroadcastHint(h.child, h.parameters.map {
@@ -99,6 +117,35 @@ object ResolveHints {
               s"an identifier or string but was $unsupported (${unsupported.getClass}")
           }.toSet)
         }
+<<<<<<< HEAD
+=======
+    }
+  }
+
+  /**
+   * COALESCE Hint accepts name "COALESCE" and "REPARTITION".
+   * Its parameter includes a partition number.
+   */
+  object ResolveCoalesceHints extends Rule[LogicalPlan] {
+    private val COALESCE_HINT_NAMES = Set("COALESCE", "REPARTITION")
+
+    def apply(plan: LogicalPlan): LogicalPlan = plan.resolveOperators {
+      case h: UnresolvedHint if COALESCE_HINT_NAMES.contains(h.name.toUpperCase(Locale.ROOT)) =>
+        val hintName = h.name.toUpperCase(Locale.ROOT)
+        val shuffle = hintName match {
+          case "REPARTITION" => true
+          case "COALESCE" => false
+        }
+        val numPartitions = h.parameters match {
+          case Seq(IntegerLiteral(numPartitions)) =>
+            numPartitions
+          case Seq(numPartitions: Int) =>
+            numPartitions
+          case _ =>
+            throw new AnalysisException(s"$hintName Hint expects a partition number as parameter")
+        }
+        Repartition(numPartitions, shuffle, h.child)
+>>>>>>> master
     }
   }
 
@@ -107,7 +154,11 @@ object ResolveHints {
    * This must be executed after all the other hint rules are executed.
    */
   object RemoveAllHints extends Rule[LogicalPlan] {
+<<<<<<< HEAD
     def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
+=======
+    def apply(plan: LogicalPlan): LogicalPlan = plan resolveOperatorsUp {
+>>>>>>> master
       case h: UnresolvedHint => h.child
     }
   }

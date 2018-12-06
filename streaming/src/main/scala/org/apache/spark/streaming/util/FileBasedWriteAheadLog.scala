@@ -139,7 +139,7 @@ private[streaming] class FileBasedWriteAheadLog(
     def readFile(file: String): Iterator[ByteBuffer] = {
       logDebug(s"Creating log reader with $file")
       val reader = new FileBasedWriteAheadLogReader(file, hadoopConf)
-      CompletionIterator[ByteBuffer, Iterator[ByteBuffer]](reader, reader.close _)
+      CompletionIterator[ByteBuffer, Iterator[ByteBuffer]](reader, () => reader.close())
     }
     if (!closeFileAfterWrite) {
       logFilesToRead.iterator.map(readFile).flatten.asJava
@@ -205,10 +205,12 @@ private[streaming] class FileBasedWriteAheadLog(
 
   /** Stop the manager, close any open log writer */
   def close(): Unit = synchronized {
-    if (currentLogWriter != null) {
-      currentLogWriter.close()
+    if (!executionContext.isShutdown) {
+      if (currentLogWriter != null) {
+        currentLogWriter.close()
+      }
+      executionContext.shutdown()
     }
-    executionContext.shutdown()
     logInfo("Stopped write ahead log manager")
   }
 
@@ -220,7 +222,7 @@ private[streaming] class FileBasedWriteAheadLog(
         pastLogs += LogInfo(currentLogWriterStartTime, currentLogWriterStopTime, _)
       }
       currentLogWriterStartTime = currentTime
-      currentLogWriterStopTime = currentTime + (rollingIntervalSecs * 1000)
+      currentLogWriterStopTime = currentTime + (rollingIntervalSecs * 1000L)
       val newLogPath = new Path(logDirectory,
         timeToLogFile(currentLogWriterStartTime, currentLogWriterStopTime))
       currentLogPath = Some(newLogPath.toString)
@@ -310,6 +312,7 @@ private[streaming] object FileBasedWriteAheadLog {
       handler: I => Iterator[O]): Iterator[O] = {
     val taskSupport = new ExecutionContextTaskSupport(executionContext)
     val groupSize = taskSupport.parallelismLevel.max(8)
+
     source.grouped(groupSize).flatMap { group =>
       val parallelCollection = group.par
       parallelCollection.tasksupport = taskSupport

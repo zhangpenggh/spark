@@ -74,7 +74,15 @@ class Hive_2_1_DDLSuite extends SparkFunSuite with TestHiveSingleton with Before
   }
 
   override def afterAll(): Unit = {
+<<<<<<< HEAD
     catalog = null
+=======
+    try {
+      catalog = null
+    } finally {
+      super.afterAll()
+    }
+>>>>>>> master
   }
 
   test("SPARK-21617: ALTER TABLE for non-compatible DataSource tables") {

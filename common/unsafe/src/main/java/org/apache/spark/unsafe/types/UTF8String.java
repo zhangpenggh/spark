@@ -29,6 +29,7 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.KryoSerializable;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
+import com.google.common.primitives.Ints;
 
 import org.apache.spark.unsafe.Platform;
 import org.apache.spark.unsafe.array.ByteArrayMethods;
@@ -95,7 +96,12 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 // 0xF5..0xFF - disallowed in UTF-8
   };
 
+<<<<<<< HEAD
   private static boolean isLittleEndian = ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN;
+=======
+  private static final boolean IS_LITTLE_ENDIAN =
+      ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN;
+>>>>>>> master
 
   private static final UTF8String COMMA_UTF8 = UTF8String.fromString(",");
   public static final UTF8String EMPTY_UTF8 = UTF8String.fromString("");
@@ -252,7 +258,7 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
     // After getting the data, we use a mask to mask out data that is not part of the string.
     long p;
     long mask = 0;
-    if (isLittleEndian) {
+    if (IS_LITTLE_ENDIAN) {
       if (numBytes >= 8) {
         p = Platform.getLong(base, offset);
       } else if (numBytes > 4) {
@@ -529,16 +535,30 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
 
   public UTF8String trim() {
     int s = 0;
-    int e = this.numBytes - 1;
     // skip all of the space (0x20) in the left side
     while (s < this.numBytes && getByte(s) == 0x20) s++;
-    // skip all of the space (0x20) in the right side
-    while (e >= 0 && getByte(e) == 0x20) e--;
-    if (s > e) {
+    if (s == this.numBytes) {
       // empty string
       return EMPTY_UTF8;
+    }
+    // skip all of the space (0x20) in the right side
+    int e = this.numBytes - 1;
+    while (e > s && getByte(e) == 0x20) e--;
+    return copyUTF8String(s, e);
+  }
+
+  /**
+   * Based on the given trim string, trim this string starting from both ends
+   * This method searches for each character in the source string, removes the character if it is
+   * found in the trim string, stops at the first not found. It calls the trimLeft first, then
+   * trimRight. It returns a new string in which both ends trim characters have been removed.
+   * @param trimString the trim character string
+   */
+  public UTF8String trim(UTF8String trimString) {
+    if (trimString != null) {
+      return trimLeft(trimString).trimRight(trimString);
     } else {
-      return copyUTF8String(s, e);
+      return null;
     }
   }
 
@@ -554,6 +574,42 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
     }
   }
 
+  /**
+   * Based on the given trim string, trim this string starting from left end
+   * This method searches each character in the source string starting from the left end, removes
+   * the character if it is in the trim string, stops at the first character which is not in the
+   * trim string, returns the new string.
+   * @param trimString the trim character string
+   */
+  public UTF8String trimLeft(UTF8String trimString) {
+    if (trimString == null) return null;
+    // the searching byte position in the source string
+    int srchIdx = 0;
+    // the first beginning byte position of a non-matching character
+    int trimIdx = 0;
+
+    while (srchIdx < numBytes) {
+      UTF8String searchChar = copyUTF8String(
+          srchIdx, srchIdx + numBytesForFirstByte(this.getByte(srchIdx)) - 1);
+      int searchCharBytes = searchChar.numBytes;
+      // try to find the matching for the searchChar in the trimString set
+      if (trimString.find(searchChar, 0) >= 0) {
+        trimIdx += searchCharBytes;
+      } else {
+        // no matching, exit the search
+        break;
+      }
+      srchIdx += searchCharBytes;
+    }
+
+    if (trimIdx >= numBytes) {
+      // empty string
+      return EMPTY_UTF8;
+    } else {
+      return copyUTF8String(trimIdx, numBytes - 1);
+    }
+  }
+
   public UTF8String trimRight() {
     int e = numBytes - 1;
     // skip all of the space (0x20) in the right side
@@ -564,6 +620,53 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
       return EMPTY_UTF8;
     } else {
       return copyUTF8String(0, e);
+    }
+  }
+
+  /**
+   * Based on the given trim string, trim this string starting from right end
+   * This method searches each character in the source string starting from the right end,
+   * removes the character if it is in the trim string, stops at the first character which is not
+   * in the trim string, returns the new string.
+   * @param trimString the trim character string
+   */
+  public UTF8String trimRight(UTF8String trimString) {
+    if (trimString == null) return null;
+    int charIdx = 0;
+    // number of characters from the source string
+    int numChars = 0;
+    // array of character length for the source string
+    int[] stringCharLen = new int[numBytes];
+    // array of the first byte position for each character in the source string
+    int[] stringCharPos = new int[numBytes];
+    // build the position and length array
+    while (charIdx < numBytes) {
+      stringCharPos[numChars] = charIdx;
+      stringCharLen[numChars] = numBytesForFirstByte(getByte(charIdx));
+      charIdx += stringCharLen[numChars];
+      numChars ++;
+    }
+
+    // index trimEnd points to the first no matching byte position from the right side of
+    // the source string.
+    int trimEnd = numBytes - 1;
+    while (numChars > 0) {
+      UTF8String searchChar = copyUTF8String(
+          stringCharPos[numChars - 1],
+          stringCharPos[numChars - 1] + stringCharLen[numChars - 1] - 1);
+      if (trimString.find(searchChar, 0) >= 0) {
+        trimEnd -= stringCharLen[numChars - 1];
+      } else {
+        break;
+      }
+      numChars --;
+    }
+
+    if (trimEnd < 0) {
+      // empty string
+      return EMPTY_UTF8;
+    } else {
+      return copyUTF8String(0, trimEnd);
     }
   }
 
@@ -784,17 +887,17 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
    */
   public static UTF8String concat(UTF8String... inputs) {
     // Compute the total length of the result.
-    int totalLength = 0;
+    long totalLength = 0;
     for (int i = 0; i < inputs.length; i++) {
       if (inputs[i] != null) {
-        totalLength += inputs[i].numBytes;
+        totalLength += (long)inputs[i].numBytes;
       } else {
         return null;
       }
     }
 
     // Allocate a new byte array, and copy the inputs one by one into it.
-    final byte[] result = new byte[totalLength];
+    final byte[] result = new byte[Ints.checkedCast(totalLength)];
     int offset = 0;
     for (int i = 0; i < inputs.length; i++) {
       int len = inputs[i].numBytes;
@@ -865,6 +968,15 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
       res[i] = fromString(splits[i]);
     }
     return res;
+  }
+
+  public UTF8String replace(UTF8String search, UTF8String replace) {
+    if (EMPTY_UTF8.equals(search)) {
+      return this;
+    }
+    String replaced = toString().replace(
+      search.toString(), replace.toString());
+    return fromString(replaced);
   }
 
   // TODO: Need to use `Code Point` here instead of Char in case the character longer than 2 bytes
@@ -1111,13 +1223,32 @@ public final class UTF8String implements Comparable<UTF8String>, Externalizable,
     return fromBytes(getBytes());
   }
 
+  public UTF8String copy() {
+    byte[] bytes = new byte[numBytes];
+    copyMemory(base, offset, bytes, BYTE_ARRAY_OFFSET, numBytes);
+    return fromBytes(bytes);
+  }
+
   @Override
   public int compareTo(@Nonnull final UTF8String other) {
     int len = Math.min(numBytes, other.numBytes);
-    // TODO: compare 8 bytes as unsigned long
-    for (int i = 0; i < len; i ++) {
+    int wordMax = (len / 8) * 8;
+    long roffset = other.offset;
+    Object rbase = other.base;
+    for (int i = 0; i < wordMax; i += 8) {
+      long left = getLong(base, offset + i);
+      long right = getLong(rbase, roffset + i);
+      if (left != right) {
+        if (IS_LITTLE_ENDIAN) {
+          return Long.compareUnsigned(Long.reverseBytes(left), Long.reverseBytes(right));
+        } else {
+          return Long.compareUnsigned(left, right);
+        }
+      }
+    }
+    for (int i = wordMax; i < len; i++) {
       // In UTF-8, the byte should be unsigned, so we should compare them as unsigned int.
-      int res = (getByte(i) & 0xFF) - (other.getByte(i) & 0xFF);
+      int res = (getByte(i) & 0xFF) - (Platform.getByte(rbase, roffset + i) & 0xFF);
       if (res != 0) {
         return res;
       }

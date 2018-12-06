@@ -30,12 +30,24 @@ import org.apache.spark.sql.catalyst.rules.Rule
  * regarding binary compatibility and source compatibility of methods here.
  *
  * This current provides the following extension points:
+<<<<<<< HEAD
  * - Analyzer Rules.
  * - Check Analysis Rules
  * - Optimizer Rules.
  * - Planning Strategies.
  * - Customized Parser.
  * - (External) Catalog listeners.
+=======
+ *
+ * <ul>
+ * <li>Analyzer Rules.</li>
+ * <li>Check Analysis Rules.</li>
+ * <li>Optimizer Rules.</li>
+ * <li>Planning Strategies.</li>
+ * <li>Customized Parser.</li>
+ * <li>(External) Catalog listeners.</li>
+ * </ul>
+>>>>>>> master
  *
  * The extensions can be used by calling withExtension on the [[SparkSession.Builder]], for
  * example:

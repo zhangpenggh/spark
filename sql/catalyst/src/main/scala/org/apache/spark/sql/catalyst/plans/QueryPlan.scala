@@ -18,12 +18,14 @@
 package org.apache.spark.sql.catalyst.plans
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.trees.TreeNode
+import org.apache.spark.sql.catalyst.trees.{CurrentOrigin, TreeNode}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
 
 abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanType] {
   self: PlanType =>
 
+<<<<<<< HEAD
   def output: Seq[Attribute]
 
   /**
@@ -180,33 +182,15 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
     }
   }
 
+=======
+>>>>>>> master
   /**
-   * An [[ExpressionSet]] that contains invariants about the rows output by this operator. For
-   * example, if this set contains the expression `a = 2` then that expression is guaranteed to
-   * evaluate to `true` for all rows produced.
+   * The active config object within the current scope.
+   * See [[SQLConf.get]] for more information.
    */
-  lazy val constraints: ExpressionSet = ExpressionSet(getRelevantConstraints(validConstraints))
+  def conf: SQLConf = SQLConf.get
 
-  /**
-   * Returns [[constraints]] depending on the config of enabling constraint propagation. If the
-   * flag is disabled, simply returning an empty constraints.
-   */
-  private[spark] def getConstraints(constraintPropagationEnabled: Boolean): ExpressionSet =
-    if (constraintPropagationEnabled) {
-      constraints
-    } else {
-      ExpressionSet(Set.empty)
-    }
-
-  /**
-   * This method can be overridden by any child class of QueryPlan to specify a set of constraints
-   * based on the given operator's constraint propagation logic. These constraints are then
-   * canonicalized and filtered automatically to contain only those attributes that appear in the
-   * [[outputSet]].
-   *
-   * See [[Canonicalize]] for more details.
-   */
-  protected def validConstraints: Set[Expression] = Set.empty
+  def output: Seq[Attribute]
 
   /**
    * Returns the set of attributes that are output by this node.
@@ -276,7 +260,9 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
     var changed = false
 
     @inline def transformExpression(e: Expression): Expression = {
-      val newE = f(e)
+      val newE = CurrentOrigin.withOrigin(e.origin) {
+        f(e)
+      }
       if (newE.fastEquals(e)) {
         e
       } else {
@@ -290,6 +276,7 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
       case Some(value) => Some(recursiveTransform(value))
       case m: Map[_, _] => m
       case d: DataType => d // Avoid unpacking Structs
+      case stream: Stream[_] => stream.map(recursiveTransform).force
       case seq: Traversable[_] => seq.map(recursiveTransform)
       case other: AnyRef => other
       case null => null
@@ -360,6 +347,15 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
   override protected def innerChildren: Seq[QueryPlan[_]] = subqueries
 
   /**
+   * A private mutable variable to indicate whether this plan is the result of canonicalization.
+   * This is used solely for making sure we wouldn't execute a canonicalized plan.
+   * See [[canonicalized]] on how this is set.
+   */
+  @transient private var _isCanonicalizedPlan: Boolean = false
+
+  protected def isCanonicalizedPlan: Boolean = _isCanonicalizedPlan
+
+  /**
    * Returns a plan where a best effort attempt has been made to transform `this` in a way
    * that preserves the result but removes cosmetic variations (case sensitivity, ordering for
    * commutative operations, expression id, etc.)
@@ -367,36 +363,44 @@ abstract class QueryPlan[PlanType <: QueryPlan[PlanType]] extends TreeNode[PlanT
    * Plans where `this.canonicalized == other.canonicalized` will always evaluate to the same
    * result.
    *
-   * Some nodes should overwrite this to provide proper canonicalize logic.
+   * Plan nodes that require special canonicalization should override [[doCanonicalize()]].
+   * They should remove expressions cosmetic variations themselves.
    */
-  lazy val canonicalized: PlanType = {
+  @transient final lazy val canonicalized: PlanType = {
+    var plan = doCanonicalize()
+    // If the plan has not been changed due to canonicalization, make a copy of it so we don't
+    // mutate the original plan's _isCanonicalizedPlan flag.
+    if (plan eq this) {
+      plan = plan.makeCopy(plan.mapProductIterator(x => x.asInstanceOf[AnyRef]))
+    }
+    plan._isCanonicalizedPlan = true
+    plan
+  }
+
+  /**
+   * Defines how the canonicalization should work for the current plan.
+   */
+  protected def doCanonicalize(): PlanType = {
     val canonicalizedChildren = children.map(_.canonicalized)
     var id = -1
-    preCanonicalized.mapExpressions {
+    mapExpressions {
       case a: Alias =>
         id += 1
         // As the root of the expression, Alias will always take an arbitrary exprId, we need to
         // normalize that for equality testing, by assigning expr id from 0 incrementally. The
         // alias name doesn't matter and should be erased.
         val normalizedChild = QueryPlan.normalizeExprId(a.child, allAttributes)
-        Alias(normalizedChild, "")(ExprId(id), a.qualifier, isGenerated = a.isGenerated)
+        Alias(normalizedChild, "")(ExprId(id), a.qualifier)
 
       case ar: AttributeReference if allAttributes.indexOf(ar.exprId) == -1 =>
         // Top level `AttributeReference` may also be used for output like `Alias`, we should
         // normalize the epxrId too.
         id += 1
-        ar.withExprId(ExprId(id))
+        ar.withExprId(ExprId(id)).canonicalized
 
       case other => QueryPlan.normalizeExprId(other, allAttributes)
     }.withNewChildren(canonicalizedChildren)
   }
-
-  /**
-   * Do some simple transformation on this plan before canonicalizing. Implementations can override
-   * this method to provide customized canonicalize logic without rewriting the whole logic.
-   */
-  protected def preCanonicalized: PlanType = this
-
 
   /**
    * Returns true when the given query plan will return the same results as this query plan.
@@ -439,7 +443,7 @@ object QueryPlan extends PredicateHelper {
         if (ordinal == -1) {
           ar
         } else {
-          ar.withExprId(ExprId(ordinal))
+          ar.withExprId(ExprId(ordinal)).canonicalized
         }
     }.canonicalized.asInstanceOf[T]
   }

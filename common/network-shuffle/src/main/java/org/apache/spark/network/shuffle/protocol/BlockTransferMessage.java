@@ -42,7 +42,11 @@ public abstract class BlockTransferMessage implements Encodable {
   /** Preceding every serialized message is its type, which allows us to deserialize it. */
   public enum Type {
     OPEN_BLOCKS(0), UPLOAD_BLOCK(1), REGISTER_EXECUTOR(2), STREAM_HANDLE(3), REGISTER_DRIVER(4),
+<<<<<<< HEAD
     HEARTBEAT(5), UNREGISTER_EXECUTOR(6);
+=======
+    HEARTBEAT(5), UPLOAD_BLOCK_STREAM(6);
+>>>>>>> master
 
     private final byte id;
 
@@ -67,7 +71,11 @@ public abstract class BlockTransferMessage implements Encodable {
         case 3: return StreamHandle.decode(buf);
         case 4: return RegisterDriver.decode(buf);
         case 5: return ShuffleServiceHeartbeat.decode(buf);
+<<<<<<< HEAD
         case 6: return UnRegisterExecutor.decode(buf);
+=======
+        case 6: return UploadBlockStream.decode(buf);
+>>>>>>> master
         default: throw new IllegalArgumentException("Unknown message type: " + type);
       }
     }

@@ -23,6 +23,7 @@ import org.apache.spark.sql.test.SharedSQLContext
 
 class SaveIntoDataSourceCommandSuite extends SharedSQLContext {
 
+<<<<<<< HEAD
   override protected def sparkConf: SparkConf = super.sparkConf
     .set("spark.redaction.regex", "(?i)password|url")
 
@@ -41,5 +42,25 @@ class SaveIntoDataSourceCommandSuite extends SharedSQLContext {
     assert(!simpleString.contains(URL))
     assert(!simpleString.contains(PASS))
     assert(simpleString.contains(DRIVER))
+=======
+  test("simpleString is redacted") {
+    val URL = "connection.url"
+    val PASS = "mypassword"
+    val DRIVER = "mydriver"
+
+    val dataSource = DataSource(
+      sparkSession = spark,
+      className = "jdbc",
+      partitionColumns = Nil,
+      options = Map("password" -> PASS, "url" -> URL, "driver" -> DRIVER))
+
+    val logicalPlanString = dataSource
+      .planForWriting(SaveMode.ErrorIfExists, spark.range(1).logicalPlan)
+      .treeString(true)
+
+    assert(!logicalPlanString.contains(URL))
+    assert(!logicalPlanString.contains(PASS))
+    assert(logicalPlanString.contains(DRIVER))
+>>>>>>> master
   }
 }

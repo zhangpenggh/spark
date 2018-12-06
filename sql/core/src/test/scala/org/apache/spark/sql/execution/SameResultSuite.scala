@@ -18,8 +18,16 @@
 package org.apache.spark.sql.execution
 
 import org.apache.spark.sql.{DataFrame, QueryTest}
+<<<<<<< HEAD
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.test.SharedSQLContext
+=======
+import org.apache.spark.sql.catalyst.expressions.AttributeReference
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.test.SharedSQLContext
+import org.apache.spark.sql.types.IntegerType
+>>>>>>> master
 
 /**
  * Tests for the sameResult function for [[SparkPlan]]s.
@@ -58,4 +66,19 @@ class SameResultSuite extends QueryTest with SharedSQLContext {
     val df4 = spark.range(10).agg(sumDistinct($"id"))
     assert(df3.queryExecution.executedPlan.sameResult(df4.queryExecution.executedPlan))
   }
+<<<<<<< HEAD
+=======
+
+  test("Canonicalized result is case-insensitive") {
+    val a = AttributeReference("A", IntegerType)()
+    val b = AttributeReference("B", IntegerType)()
+    val planUppercase = Project(Seq(a), LocalRelation(a, b))
+
+    val c = AttributeReference("a", IntegerType)()
+    val d = AttributeReference("b", IntegerType)()
+    val planLowercase = Project(Seq(c), LocalRelation(c, d))
+
+    assert(planUppercase.sameResult(planLowercase))
+  }
+>>>>>>> master
 }

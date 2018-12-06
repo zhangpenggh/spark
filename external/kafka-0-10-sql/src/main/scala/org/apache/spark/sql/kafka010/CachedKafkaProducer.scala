@@ -33,8 +33,17 @@ private[kafka010] object CachedKafkaProducer extends Logging {
 
   private type Producer = KafkaProducer[Array[Byte], Array[Byte]]
 
+<<<<<<< HEAD
   private lazy val cacheExpireTimeout: Long =
     SparkEnv.get.conf.getTimeAsMs("spark.kafka.producer.cache.timeout", "10m")
+=======
+  private val defaultCacheExpireTimeout = TimeUnit.MINUTES.toMillis(10)
+
+  private lazy val cacheExpireTimeout: Long =
+    Option(SparkEnv.get).map(_.conf.getTimeAsMs(
+      "spark.kafka.producer.cache.timeout",
+      s"${defaultCacheExpireTimeout}ms")).getOrElse(defaultCacheExpireTimeout)
+>>>>>>> master
 
   private val cacheLoader = new CacheLoader[Seq[(String, Object)], Producer] {
     override def load(config: Seq[(String, Object)]): Producer = {
@@ -102,7 +111,11 @@ private[kafka010] object CachedKafkaProducer extends Logging {
     }
   }
 
+<<<<<<< HEAD
   private def clear(): Unit = {
+=======
+  private[kafka010] def clear(): Unit = {
+>>>>>>> master
     logInfo("Cleaning up guava cache.")
     guavaCache.invalidateAll()
   }

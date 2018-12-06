@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.catalyst.catalog
 
-import org.apache.spark.sql.catalyst.analysis.{FunctionAlreadyExistsException, NoSuchDatabaseException, NoSuchFunctionException, NoSuchTableException}
+import org.apache.spark.sql.catalyst.analysis.{FunctionAlreadyExistsException, NoSuchDatabaseException, NoSuchFunctionException, NoSuchPartitionException, NoSuchTableException}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.ListenerBus
@@ -31,9 +31,17 @@ import org.apache.spark.util.ListenerBus
  *
  * Implementations should throw [[NoSuchDatabaseException]] when databases don't exist.
  */
+<<<<<<< HEAD
 abstract class ExternalCatalog
   extends ListenerBus[ExternalCatalogEventListener, ExternalCatalogEvent] {
+=======
+trait ExternalCatalog {
+>>>>>>> master
   import CatalogTypes.TablePartitionSpec
+
+  // --------------------------------------------------------------------------
+  // Utils
+  // --------------------------------------------------------------------------
 
   protected def requireDbExists(db: String): Unit = {
     if (!databaseExists(db)) {
@@ -129,11 +137,19 @@ abstract class ExternalCatalog
       ignoreIfNotExists: Boolean,
       purge: Boolean): Unit
 
+<<<<<<< HEAD
   final def renameTable(db: String, oldName: String, newName: String): Unit = {
     postToAll(RenameTablePreEvent(db, oldName, newName))
     doRenameTable(db, oldName, newName)
     postToAll(RenameTableEvent(db, oldName, newName))
   }
+=======
+  def dropTable(
+      db: String,
+      table: String,
+      ignoreIfNotExists: Boolean,
+      purge: Boolean): Unit
+>>>>>>> master
 
   protected def doRenameTable(db: String, oldName: String, newName: String): Unit
 
@@ -158,8 +174,14 @@ abstract class ExternalCatalog
    */
   def alterTableDataSchema(db: String, table: String, newDataSchema: StructType): Unit
 
+  /** Alter the statistics of a table. If `stats` is None, then remove all existing statistics. */
+  def alterTableStats(db: String, table: String, stats: Option[CatalogStatistics]): Unit
+
+<<<<<<< HEAD
+=======
   def getTable(db: String, table: String): CatalogTable
 
+>>>>>>> master
   def tableExists(db: String, table: String): Boolean
 
   def listTables(db: String): Seq[String]
@@ -331,17 +353,26 @@ abstract class ExternalCatalog
     postToAll(RenameFunctionEvent(db, oldName, newName))
   }
 
+<<<<<<< HEAD
   protected def doRenameFunction(db: String, oldName: String, newName: String): Unit
+=======
+  def alterFunction(db: String, funcDefinition: CatalogFunction): Unit
+
+  def renameFunction(db: String, oldName: String, newName: String): Unit
+>>>>>>> master
 
   def getFunction(db: String, funcName: String): CatalogFunction
 
   def functionExists(db: String, funcName: String): Boolean
 
   def listFunctions(db: String, pattern: String): Seq[String]
+<<<<<<< HEAD
 
   override protected def doPostEvent(
       listener: ExternalCatalogEventListener,
       event: ExternalCatalogEvent): Unit = {
     listener.onEvent(event)
   }
+=======
+>>>>>>> master
 }
