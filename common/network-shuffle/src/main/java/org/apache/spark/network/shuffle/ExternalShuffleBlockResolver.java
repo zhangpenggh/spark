@@ -37,8 +37,6 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.cache.Weigher;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.fs.FileContext;
-import org.apache.hadoop.fs.Path;
 import org.iq80.leveldb.DB;
 import org.iq80.leveldb.DBIterator;
 import org.slf4j.Logger;
@@ -95,7 +93,6 @@ public class ExternalShuffleBlockResolver {
 
   private final Map<AppExecId, Long> executorUnRegisterMap = Maps.newConcurrentMap();
   private Thread cleanThread;
-  private FileContext fileContext = FileContext.getLocalFSFileContext();
 
   @VisibleForTesting
   final File registeredExecutorFile;
